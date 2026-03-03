@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bell Synthesizer — Spectral Patch</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=Inconsolata:wght@300;400&display=swap');
+  :root{--bg:#0a0c10;--sur:#111318;--brd:#1e2230;--acc:#c9a96e;--acc2:#7eb8c9;--acc3:#9b7ec9;--txt:#d4cfc8;--mut:#5a5f70}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--txt);font-family:'Inconsolata',monospace;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:40px 20px}
+  .container{width:100%;max-width:760px}
+  header{text-align:center;margin-bottom:44px}
+  h1{font-family:'Cormorant Garamond',serif;font-weight:300;font-size:clamp(1.8rem,5vw,3rem);letter-spacing:.08em;color:#ede8df;margin-bottom:5px}
+  h1 em{font-style:italic;color:var(--acc)}
+  .sub{font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--mut)}
+  .abar{display:grid;grid-template-columns:repeat(6,1fr);gap:2px;margin-bottom:32px;border:1px solid var(--brd);border-radius:4px;overflow:hidden}
+  .pc{padding:10px 5px;background:var(--sur);text-align:center;font-size:9px}
+  .pc .f{color:var(--acc);font-size:11px;display:block;margin-bottom:3px}
+  .pc .bw{height:28px;display:flex;align-items:flex-end;justify-content:center;margin:3px 0}
+  .pc .b{width:12px;background:linear-gradient(to top,var(--acc),var(--acc2));border-radius:2px 2px 0 0}
+  .pc .dl{color:var(--mut);font-size:8px}
+  .strike-zone{display:flex;justify-content:center;margin-bottom:32px;position:relative}
+  .bell-btn{width:130px;height:130px;border-radius:50%;border:none;cursor:pointer;background:radial-gradient(circle at 40% 35%,#2a2618,#13110a);box-shadow:0 0 0 1px var(--brd),0 0 40px rgba(201,169,110,.08),inset 0 1px 0 rgba(255,255,255,.06);transition:box-shadow .08s,transform .08s;outline:none;display:flex;align-items:center;justify-content:center}
+  .bell-btn:hover{box-shadow:0 0 0 1px rgba(201,169,110,.4),0 0 60px rgba(201,169,110,.2)}
+  .bell-btn.ringing{transform:scale(.94);box-shadow:0 0 0 1px var(--acc),0 0 80px rgba(201,169,110,.4)}
+  .bell-icon{width:55px;height:55px;fill:var(--acc);filter:drop-shadow(0 0 8px rgba(201,169,110,.4))}
+  .bell-btn:hover .bell-icon{filter:drop-shadow(0 0 14px rgba(201,169,110,.7))}
+  .ripple{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) scale(0);width:130px;height:130px;border-radius:50%;border:1px solid var(--acc);opacity:0;pointer-events:none}
+  .ripple.active{animation:ro 1.8s ease-out forwards}
+  @keyframes ro{0%{transform:translate(-50%,-50%) scale(1);opacity:.6}100%{transform:translate(-50%,-50%) scale(4.5);opacity:0}}
+  .panel{background:var(--sur);border:1px solid var(--brd);border-radius:6px;padding:22px;margin-bottom:18px}
+  .pt{font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:var(--mut);margin-bottom:18px;display:flex;align-items:center;gap:10px}
+  .pt::after{content:'';flex:1;height:1px;background:var(--brd)}
+  .cg{display:grid;grid-template-columns:1fr 1fr;gap:16px 28px}
+  @media(max-width:500px){.cg{grid-template-columns:1fr}.abar{grid-template-columns:repeat(3,1fr)}}
+  .cr{display:flex;flex-direction:column;gap:5px}
+  .cr label{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--mut);display:flex;justify-content:space-between}
+  .cr label span{color:var(--acc)}
+  input[type=range]{-webkit-appearance:none;width:100%;height:2px;background:var(--brd);border-radius:1px;outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;background:var(--acc);box-shadow:0 0 6px rgba(201,169,110,.5);cursor:pointer;transition:transform .1s}
+  input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.3)}
+  table{width:100%;border-collapse:collapse;font-size:11px}
+  table th{text-align:left;color:var(--mut);font-weight:300;letter-spacing:.18em;text-transform:uppercase;font-size:9px;padding:0 8px 9px 0;border-bottom:1px solid var(--brd)}
+  table td{padding:7px 8px 7px 0;border-bottom:1px solid rgba(30,34,48,.5);vertical-align:middle}
+  table td:first-child{color:var(--acc);font-weight:400;width:68px}
+  canvas{width:100%;height:70px;display:block;border-radius:3px}
+  .sr{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  .sb{padding:5px 13px;background:transparent;border:1px solid var(--brd);border-radius:3px;color:var(--mut);font-family:'Inconsolata',monospace;font-size:11px;letter-spacing:.1em;cursor:pointer;transition:all .15s}
+  .sb:hover,.sb.playing{border-color:var(--acc);color:var(--acc);background:rgba(201,169,110,.07)}
+  /* Sustain meters */
+  .meter-row{margin-bottom:12px}
+  .meter-row:last-child{margin-bottom:0}
+  .meter-hd{font-size:9px;color:var(--mut);letter-spacing:.14em;margin-bottom:5px;display:flex;justify-content:space-between}
+  .meter-track{height:3px;background:var(--brd);border-radius:2px;overflow:hidden}
+  .meter-fill{height:100%;width:0%;border-radius:2px;transition:width .3s linear}
+  footer{text-align:center;margin-top:32px;font-size:10px;color:var(--mut);letter-spacing:.12em;line-height:2.2}
+  .tag{display:inline-block;padding:1px 6px;background:rgba(126,184,201,.1);border:1px solid rgba(126,184,201,.2);border-radius:2px;color:var(--acc2);font-size:9px;margin:1px}
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1>Bell <em>Synthesis</em> Patch</h1>
+    <p class="sub">Spectral analysis · Web Audio API · Additive + FM · ~45s sustain</p>
+  </header>
+
+  <!-- Spectral fingerprint -->
+  <div class="abar" id="aBar"></div>
+
+  <!-- Sustain meters -->
+  <div class="panel" style="padding:16px 22px">
+    <div class="meter-row">
+      <div class="meter-hd"><span>Shimmer (1154 Hz) — T60 ≈ 45s</span><span id="sT">—</span></div>
+      <div class="meter-track"><div class="meter-fill" id="sFill" style="background:linear-gradient(to right,var(--acc),var(--acc2))"></div></div>
+    </div>
+    <div class="meter-row">
+      <div class="meter-hd"><span>Body (615 Hz) — T60 ≈ 30s</span><span id="bT">—</span></div>
+      <div class="meter-track"><div class="meter-fill" id="bFill" style="background:linear-gradient(to right,var(--acc2),var(--acc3))"></div></div>
+    </div>
+  </div>
+
+  <!-- Bell trigger -->
+  <div class="strike-zone">
+    <div class="ripple" id="r1"></div>
+    <div class="ripple" id="r2"></div>
+    <button class="bell-btn" id="bellBtn" title="Click or press Space">
+      <svg class="bell-icon" viewBox="0 0 24 24">
+        <path d="M12 2a1 1 0 0 1 1 1v.5C16.386 4.08 19 6.97 19 10.5V15l1.707 1.707A1 1 0 0 1 20 18.5H4a1 1 0 0 1-.707-1.793L5 15v-4.5C5 6.97 7.614 4.08 11 3.5V3a1 1 0 0 1 1-1zm0 20a2 2 0 0 1-2-2h4a2 2 0 0 1-2 2z"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Envelope -->
+  <div class="panel">
+    <div class="pt">Envelope — measured decay times</div>
+    <div class="cg">
+      <div class="cr"><label>Attack<span id="av">4ms</span></label><input type="range" id="atk" min="1" max="50" value="4" step="1"></div>
+      <div class="cr"><label>Shimmer T60 (1154 Hz)<span id="dv">45s</span></label><input type="range" id="dec" min="2" max="70" value="45" step="1"></div>
+      <div class="cr"><label>Body T60 (615 Hz)<span id="bv">30s</span></label><input type="range" id="bdec" min="0.5" max="45" value="30" step="0.5"></div>
+      <div class="cr"><label>Low T60 (223 Hz)<span id="lv">0.5s</span></label><input type="range" id="ldec" min="0.1" max="4" value="0.5" step="0.1"></div>
+      <div class="cr"><label>Master gain<span id="gv">0.55</span></label><input type="range" id="gain" min="0.05" max="1" value="0.55" step="0.05"></div>
+    </div>
+  </div>
+
+  <!-- Partials mix -->
+  <div class="panel">
+    <div class="pt">Additive partials <span style="color:var(--acc2);font-size:9px;margin-left:6px;letter-spacing:.05em">FFT-measured levels &amp; T60s</span></div>
+    <table>
+      <thead><tr><th>Freq</th><th>Ratio</th><th>dB</th><th style="min-width:110px">Level</th><th>T60</th></tr></thead>
+      <tbody id="ptBody"></tbody>
+    </table>
+  </div>
+
+  <!-- FM / noise -->
+  <div class="panel">
+    <div class="pt">FM clang + strike noise</div>
+    <div class="cg">
+      <div class="cr"><label>FM depth<span id="fv">8</span></label><input type="range" id="fmd" min="0" max="60" value="8" step="1"></div>
+      <div class="cr"><label>FM decay<span id="fdv">0.15s</span></label><input type="range" id="fmDec" min="0.02" max="1" value="0.15" step="0.01"></div>
+      <div class="cr"><label>Strike noise<span id="nv">0.30</span></label><input type="range" id="nAmt" min="0" max="1" value="0.30" step="0.05"></div>
+      <div class="cr"><label>Noise decay<span id="ndv">0.04s</span></label><input type="range" id="nDec" min="0.01" max="0.2" value="0.04" step="0.005"></div>
+    </div>
+  </div>
+
+  <!-- Sequencer -->
+  <div class="panel">
+    <div class="pt">Sequence</div>
+    <div class="sr">
+      <button class="sb" onclick="doStrike()">Single</button>
+      <button class="sb" id="sqSlow" onclick="playSeq('slow')">Slow toll</button>
+      <button class="sb" id="sqCar"  onclick="playSeq('carillon')">Carillon</button>
+      <button class="sb" onclick="stopSeq()">■ Stop</button>
+    </div>
+  </div>
+
+  <!-- Waveform -->
+  <div class="panel" style="padding:14px">
+    <div class="pt">Waveform</div>
+    <canvas id="viz"></canvas>
+  </div>
+
+  <footer>
+    <span class="tag">223 Hz · 0.5s T60</span>
+    <span class="tag">615 Hz · 30s T60</span>
+    <span class="tag">1154 Hz · 45s T60</span>
+    <span class="tag">1807 Hz · 3.25s</span>
+    <span class="tag">2555 Hz · 3.25s</span>
+    <span class="tag">3382 Hz · 1s</span>
+    <br>Decay times measured from 47-second recording · Additive synthesis + FM transient + strike noise<br>
+    <span style="color:var(--acc3)">Click bell or press Space to strike</span>
+  </footer>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// PARTIALS: frequencies & T60s measured from the actual Bell2.mp3 (47s file).
+//
+// Key findings from per-second amplitude tracking:
+//   1154 Hz: amplitude ~halves every 6.5s  →  T60 ≈ 45s  (dominant sustain)
+//   615  Hz: slow decay, ~30s T60
+//   223  Hz: fast thud, ~0.5s T60
+//   3382 Hz: clang punch, ~1s T60
+//   1807, 2555 Hz: mid-high tail, ~3.25s T60
+// ─────────────────────────────────────────────────────────────────────────────
+const PARTIALS = [
+  { freq: 223,  db: -21.3, t60: 0.5,   ratio: '1.00×'  },
+  { freq: 615,  db: -8.7,  t60: 30.0,  ratio: '2.76×'  },
+  { freq: 1154, db:  0.0,  t60: 45.0,  ratio: '5.17×'  },
+  { freq: 1807, db: -36.1, t60: 3.25,  ratio: '8.10×'  },
+  { freq: 2555, db: -39.3, t60: 3.25,  ratio: '11.46×' },
+  { freq: 3382, db: -30.4, t60: 1.0,   ratio: '15.17×' },
+];
+
+const d2l = db => Math.pow(10, db / 20);
+const baseGains = PARTIALS.map(p => d2l(p.db));
+
+// ── Audio context ─────────────────────────────────────────────────────────────
+let ctx = null, analyser = null, masterOut = null;
+
+function initAudio() {
+  if (ctx) return;
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  analyser = ctx.createAnalyser();
+  analyser.fftSize = 1024;
+  masterOut = ctx.createGain();
+  masterOut.connect(analyser);
+  analyser.connect(ctx.destination);
+  startViz();
+}
+
+// ── Sustain meters ────────────────────────────────────────────────────────────
+let meterStart = null;
+
+function startMeters() {
+  meterStart = performance.now();
+  tickMeters();
+}
+
+function tickMeters() {
+  if (!meterStart) return;
+  const el = (performance.now() - meterStart) / 1000;
+  const shimT60 = +document.getElementById('dec').value;
+  const bodyT60 = +document.getElementById('bdec').value;
+  // A(t) = exp( -ln(1000) * t / T60 )
+  const LN1000 = 6.9078;
+  const sA = Math.exp(-LN1000 * el / shimT60);
+  const bA = Math.exp(-LN1000 * el / bodyT60);
+
+  document.getElementById('sFill').style.width = (sA * 100).toFixed(2) + '%';
+  document.getElementById('bFill').style.width = (bA * 100).toFixed(2) + '%';
+  document.getElementById('sT').textContent =
+    sA > 0.001 ? `+${el.toFixed(1)}s  (${(20*Math.log10(sA)).toFixed(1)} dB)` : 'decayed';
+  document.getElementById('bT').textContent =
+    bA > 0.001 ? `+${el.toFixed(1)}s  (${(20*Math.log10(bA)).toFixed(1)} dB)` : 'decayed';
+
+  const maxT = Math.max(shimT60, bodyT60);
+  if (el < maxT * 1.5) {
+    requestAnimationFrame(tickMeters);
+  } else {
+    document.getElementById('sFill').style.width = '0%';
+    document.getElementById('bFill').style.width = '0%';
+    document.getElementById('sT').textContent = '—';
+    document.getElementById('bT').textContent = '—';
+    meterStart = null;
+  }
+}
+
+// ── Bell synthesis ─────────────────────────────────────────────────────────────
+function strikeBell(offsetSec = 0) {
+  initAudio();
+  if (ctx.state === 'suspended') ctx.resume();
+  const p = getParams();
+  const t = ctx.currentTime + 0.005 + offsetSec;
+
+  // Per-strike gain node (for cleanup)
+  const sg = ctx.createGain();
+  sg.gain.value = 1;
+  sg.connect(masterOut);
+
+  // 1. Strike noise burst — simulates hammer/clapper impact
+  if (p.noise > 0.01) {
+    const bufLen = Math.ceil(ctx.sampleRate * 0.12);
+    const nBuf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+    const nd = nBuf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) nd[i] = Math.random() * 2 - 1;
+
+    const nSrc = ctx.createBufferSource();
+    nSrc.buffer = nBuf;
+    nSrc.loop = true;
+
+    // Band-pass centred ~700 Hz to match clapper region
+    const nbp = ctx.createBiquadFilter();
+    nbp.type = 'bandpass';
+    nbp.frequency.value = 700;
+    nbp.Q.value = 0.8;
+
+    const nGain = ctx.createGain();
+    nGain.gain.setValueAtTime(p.noise * p.gain, t);
+    nGain.gain.exponentialRampToValueAtTime(0.0001, t + p.nDec);
+
+    nSrc.connect(nbp);
+    nbp.connect(nGain);
+    nGain.connect(sg);
+    nSrc.start(t);
+    nSrc.stop(t + p.nDec + 0.02);
+  }
+
+  // 2. Additive sine partials — each with its own measured T60
+  PARTIALS.forEach((part, i) => {
+    const g = baseGains[i] * p.gain * getPartialLevel(i);
+    if (g < 0.00005) return;
+
+    // Assign T60 — controllable for the 3 main ones, fixed for upper partials
+    let t60;
+    if      (i === 0) t60 = p.lowT60;
+    else if (i === 1) t60 = p.bodyT60;
+    else if (i === 2) t60 = p.shimmerT60;
+    else              t60 = part.t60;
+
+    // Carrier sine
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = part.freq;
+
+    // FM modulator for attack clang (decays away quickly)
+    const fmOsc = ctx.createOscillator();
+    fmOsc.frequency.value = part.freq * 2.76;
+    const fmGain = ctx.createGain();
+    fmGain.gain.setValueAtTime(p.fmDepth * part.freq, t);
+    fmGain.gain.exponentialRampToValueAtTime(0.1, t + p.fmDec);
+    fmOsc.connect(fmGain);
+    fmGain.connect(osc.frequency);
+
+    // Amplitude envelope: fast attack → very long exponential decay
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.linearRampToValueAtTime(g, t + p.attack / 1000);
+
+    // setTargetAtTime: tau = T60 / ln(1000) = T60 / 6.9078
+    // This gives a true -60 dB time of T60 seconds.
+    const tau = t60 / 6.9078;
+    env.gain.setTargetAtTime(0.0001, t + p.attack / 1000, tau);
+
+    osc.connect(env);
+    env.connect(sg);
+    osc.start(t);
+    fmOsc.start(t);
+
+    // Stop nodes after decay (cap at 100s)
+    const stopAt = t + Math.min(t60 * 1.8, 100);
+    osc.stop(stopAt);
+    fmOsc.stop(t + p.fmDec + 0.1);
+  });
+
+  // Cleanup strike gain node after longest possible decay
+  const cleanupMs = (Math.min(p.shimmerT60 * 1.8, 100) + offsetSec + 2) * 1000;
+  setTimeout(() => { try { sg.disconnect(); } catch(e) {} }, cleanupMs);
+}
+
+// ── Parameters ─────────────────────────────────────────────────────────────────
+function getParams() {
+  return {
+    attack:     +document.getElementById('atk').value,
+    shimmerT60: +document.getElementById('dec').value,
+    bodyT60:    +document.getElementById('bdec').value,
+    lowT60:     +document.getElementById('ldec').value,
+    gain:       +document.getElementById('gain').value,
+    fmDepth:    +document.getElementById('fmd').value / 1000,
+    fmDec:      +document.getElementById('fmDec').value,
+    noise:      +document.getElementById('nAmt').value,
+    nDec:       +document.getElementById('nDec').value,
+  };
+}
+
+function getPartialLevel(i) {
+  const el = document.getElementById('pg' + i);
+  return el ? +el.value : 1.0;
+}
+
+// ── Build UI ───────────────────────────────────────────────────────────────────
+function buildBar() {
+  const bar = document.getElementById('aBar');
+  const mx = Math.max(...PARTIALS.map(p => d2l(p.db)));
+  PARTIALS.forEach(p => {
+    const h = Math.round(d2l(p.db) / mx * 28);
+    bar.innerHTML += `<div class="pc">
+      <span class="f">${p.freq}Hz</span>
+      <div class="bw"><div class="b" style="height:${h}px"></div></div>
+      <div class="dl">${p.t60}s T60</div>
+    </div>`;
+  });
+}
+
+function buildTable() {
+  const tb = document.getElementById('ptBody');
+  PARTIALS.forEach((p, i) => {
+    tb.innerHTML += `<tr>
+      <td>${p.freq} Hz</td>
+      <td style="color:var(--acc2);width:52px">${p.ratio}</td>
+      <td style="color:var(--mut);width:52px">${p.db.toFixed(1)} dB</td>
+      <td><input type="range" id="pg${i}" min="0" max="2" step="0.05" value="1" style="width:100%"></td>
+      <td style="color:var(--acc3);font-size:10px;white-space:nowrap">${p.t60}s</td>
+    </tr>`;
+  });
+}
+
+function bindRanges() {
+  [
+    ['atk',   'av',  v => v + 'ms'],
+    ['dec',   'dv',  v => v + 's'],
+    ['bdec',  'bv',  v => v + 's'],
+    ['ldec',  'lv',  v => v + 's'],
+    ['gain',  'gv',  v => v],
+    ['fmd',   'fv',  v => v],
+    ['fmDec', 'fdv', v => v + 's'],
+    ['nAmt',  'nv',  v => parseFloat(v).toFixed(2)],
+    ['nDec',  'ndv', v => v + 's'],
+  ].forEach(([id, lid, fmt]) => {
+    const el = document.getElementById(id);
+    const up = () => document.getElementById(lid).textContent = fmt(el.value);
+    el.addEventListener('input', up);
+    up();
+  });
+}
+
+// ── Visualizer ─────────────────────────────────────────────────────────────────
+function startViz() {
+  const canvas = document.getElementById('viz');
+  const c = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = canvas.offsetWidth  * dpr;
+  canvas.height = canvas.offsetHeight * dpr;
+  const W = canvas.width, H = canvas.height;
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+  (function draw() {
+    requestAnimationFrame(draw);
+    analyser.getByteTimeDomainData(buf);
+    c.clearRect(0, 0, W, H);
+    c.strokeStyle = 'rgba(201,169,110,.75)';
+    c.lineWidth = 1.5;
+    c.shadowColor = 'rgba(201,169,110,.35)';
+    c.shadowBlur = 5;
+    c.beginPath();
+    buf.forEach((v, i) => {
+      const x = i * W / buf.length, y = (v / 255) * H;
+      i ? c.lineTo(x, y) : c.moveTo(x, y);
+    });
+    c.stroke();
+  })();
+}
+
+// ── Visual feedback ────────────────────────────────────────────────────────────
+let rt = 0;
+function triggerVisual() {
+  const btn = document.getElementById('bellBtn');
+  btn.classList.add('ringing');
+  setTimeout(() => btn.classList.remove('ringing'), 150);
+  const r = document.getElementById('r' + (rt++ % 2 + 1));
+  r.classList.remove('active');
+  void r.offsetWidth; // reflow to restart animation
+  r.classList.add('active');
+  startMeters();
+}
+
+// ── Strike wrapper ─────────────────────────────────────────────────────────────
+function doStrike(offsetSec = 0) {
+  strikeBell(offsetSec);
+  if (offsetSec === 0) triggerVisual();
+}
+
+// ── Sequencer ──────────────────────────────────────────────────────────────────
+let sqIds = [];
+const SEQS = {
+  slow:     [0, 2500, 5000, 7500, 10000, 12500],
+  carillon: [0, 130, 260, 390, 520, 780, 910, 1040, 1300, 1560, 1820, 2080, 2600],
+};
+
+function playSeq(name) {
+  stopSeq();
+  const btn = document.getElementById('sq' + name.charAt(0).toUpperCase() + name.slice(1));
+  if (btn) btn.classList.add('playing');
+  SEQS[name].forEach((ms, idx) => {
+    sqIds.push(setTimeout(() => {
+      strikeBell();
+      triggerVisual();
+    }, ms));
+  });
+}
+
+function stopSeq() {
+  sqIds.forEach(clearTimeout);
+  sqIds = [];
+  document.querySelectorAll('.sb').forEach(b => b.classList.remove('playing'));
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+buildBar();
+buildTable();
+bindRanges();
+
+document.getElementById('bellBtn').addEventListener('click', () => doStrike());
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && e.target === document.body) {
+    e.preventDefault();
+    doStrike();
+  }
+});
+</script>
+</body>
+</html>
