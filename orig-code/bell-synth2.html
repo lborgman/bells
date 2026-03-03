@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bell Synthesizer — Spectral Analysis Patch</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=Inconsolata:wght@300;400&display=swap');
+
+  :root {
+    --bg: #0a0c10;
+    --surface: #111318;
+    --border: #1e2230;
+    --accent: #c9a96e;
+    --accent2: #7eb8c9;
+    --accent3: #9b7ec9;
+    --text: #d4cfc8;
+    --muted: #5a5f70;
+    --glow: rgba(201, 169, 110, 0.15);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inconsolata', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px;
+    overflow-x: hidden;
+  }
+
+  /* Subtle noise texture */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.4;
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 780px;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 48px;
+  }
+
+  header h1 {
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 300;
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    letter-spacing: 0.08em;
+    color: #ede8df;
+    margin-bottom: 6px;
+  }
+
+  header h1 em {
+    font-style: italic;
+    color: var(--accent);
+  }
+
+  .subtitle {
+    font-size: 11px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* Analysis card */
+  .analysis-bar {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 2px;
+    margin-bottom: 36px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .partial-cell {
+    padding: 10px 6px;
+    background: var(--surface);
+    text-align: center;
+    font-size: 10px;
+  }
+
+  .partial-cell .freq {
+    color: var(--accent);
+    font-weight: 400;
+    font-size: 12px;
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  .partial-cell .bar-wrap {
+    height: 30px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    margin: 4px 0;
+  }
+
+  .partial-cell .bar {
+    width: 14px;
+    background: linear-gradient(to top, var(--accent), var(--accent2));
+    border-radius: 2px 2px 0 0;
+    transition: height 0.1s;
+  }
+
+  .partial-cell .decay-label {
+    color: var(--muted);
+    font-size: 9px;
+  }
+
+  /* Bell button */
+  .strike-zone {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 40px;
+    position: relative;
+  }
+
+  .bell-btn {
+    position: relative;
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    background: radial-gradient(circle at 40% 35%, #2a2618, #13110a);
+    box-shadow:
+      0 0 0 1px var(--border),
+      0 0 40px rgba(201, 169, 110, 0.08),
+      inset 0 1px 0 rgba(255,255,255,0.06);
+    transition: box-shadow 0.08s, transform 0.08s;
+    outline: none;
+    overflow: visible;
+  }
+
+  .bell-btn:hover {
+    box-shadow:
+      0 0 0 1px rgba(201, 169, 110, 0.4),
+      0 0 60px rgba(201, 169, 110, 0.2),
+      inset 0 1px 0 rgba(255,255,255,0.1);
+  }
+
+  .bell-btn:active, .bell-btn.ringing {
+    transform: scale(0.95);
+    box-shadow:
+      0 0 0 1px var(--accent),
+      0 0 80px rgba(201, 169, 110, 0.4),
+      inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+
+  .bell-icon {
+    width: 60px;
+    height: 60px;
+    fill: var(--accent);
+    opacity: 0.9;
+    transition: opacity 0.1s;
+    filter: drop-shadow(0 0 8px rgba(201,169,110,0.4));
+  }
+
+  .bell-btn:hover .bell-icon {
+    opacity: 1;
+    filter: drop-shadow(0 0 14px rgba(201,169,110,0.7));
+  }
+
+  /* Ripple */
+  .ripple {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) scale(0);
+    width: 140px; height: 140px;
+    border-radius: 50%;
+    border: 1px solid var(--accent);
+    opacity: 0;
+    pointer-events: none;
+    animation: none;
+  }
+
+  .ripple.active {
+    animation: ripple-out 1.2s ease-out forwards;
+  }
+
+  @keyframes ripple-out {
+    0%   { transform: translate(-50%,-50%) scale(1); opacity: 0.6; }
+    100% { transform: translate(-50%,-50%) scale(3.5); opacity: 0; }
+  }
+
+  /* Controls panel */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+
+  .panel-title {
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .panel-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .controls-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px 32px;
+  }
+
+  @media (max-width: 500px) {
+    .controls-grid { grid-template-columns: 1fr; }
+    .analysis-bar { grid-template-columns: repeat(3, 1fr); }
+  }
+
+  .control-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .control-row label {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .control-row label span {
+    color: var(--accent);
+    font-weight: 400;
+  }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 2px;
+    background: var(--border);
+    border-radius: 1px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px rgba(201,169,110,0.5);
+    cursor: pointer;
+    transition: transform 0.1s;
+  }
+
+  input[type=range]:hover::-webkit-slider-thumb {
+    transform: scale(1.3);
+  }
+
+  input[type=range]::-webkit-slider-runnable-track {
+    background: linear-gradient(to right, var(--accent) var(--pct, 50%), var(--border) var(--pct, 50%));
+    height: 2px;
+    border-radius: 1px;
+  }
+
+  /* Partials table */
+  .partials-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+
+  .partials-table th {
+    text-align: left;
+    color: var(--muted);
+    font-weight: 300;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    font-size: 9px;
+    padding: 0 8px 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .partials-table td {
+    padding: 8px 8px 8px 0;
+    border-bottom: 1px solid rgba(30,34,48,0.5);
+    vertical-align: middle;
+  }
+
+  .partials-table td:first-child {
+    color: var(--accent);
+    font-weight: 400;
+    width: 70px;
+  }
+
+  .partials-table .ratio {
+    color: var(--accent2);
+    width: 50px;
+  }
+
+  .partials-table .db-val {
+    color: var(--muted);
+    width: 55px;
+  }
+
+  .partials-table input[type=range] {
+    width: 100%;
+    min-width: 80px;
+  }
+
+  .partial-gain-cell {
+    width: 140px;
+  }
+
+  /* Visualizer */
+  canvas {
+    width: 100%;
+    height: 80px;
+    display: block;
+    border-radius: 3px;
+  }
+
+  /* Sequence */
+  .seq-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+
+  .seq-btn {
+    padding: 6px 14px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--muted);
+    font-family: 'Inconsolata', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .seq-btn:hover, .seq-btn.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(201,169,110,0.06);
+  }
+
+  .seq-btn.playing {
+    background: rgba(201,169,110,0.12);
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 12px rgba(201,169,110,0.2);
+  }
+
+  footer {
+    text-align: center;
+    margin-top: 36px;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+  }
+
+  .tag {
+    display: inline-block;
+    padding: 2px 6px;
+    background: rgba(126,184,201,0.1);
+    border: 1px solid rgba(126,184,201,0.2);
+    border-radius: 2px;
+    color: var(--accent2);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-right: 4px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1>Bell <em>Synthesis</em> Patch</h1>
+    <p class="subtitle">Spectral analysis · Web Audio API · Additive + FM</p>
+  </header>
+
+  <!-- Spectral analysis overview -->
+  <div class="analysis-bar" id="analysisBar">
+    <!-- filled by JS -->
+  </div>
+
+  <!-- Bell trigger -->
+  <div class="strike-zone">
+    <div class="ripple" id="ripple1"></div>
+    <div class="ripple" id="ripple2"></div>
+    <button class="bell-btn" id="bellBtn" title="Strike bell">
+      <svg class="bell-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2a1 1 0 0 1 1 1v.5C16.386 4.08 19 6.97 19 10.5V15l1.707 1.707A1 1 0 0 1 20 18.5H4a1 1 0 0 1-.707-1.793L5 15v-4.5C5 6.97 7.614 4.08 11 3.5V3a1 1 0 0 1 1-1zm0 20a2 2 0 0 1-2-2h4a2 2 0 0 1-2 2z"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Envelope controls -->
+  <div class="panel">
+    <div class="panel-title">Envelope</div>
+    <div class="controls-grid">
+      <div class="control-row">
+        <label>Attack <span id="atkVal">4ms</span></label>
+        <input type="range" id="atk" min="1" max="50" value="4" step="1">
+      </div>
+      <div class="control-row">
+        <label>Decay T60 <span id="decVal">2.8s</span></label>
+        <input type="range" id="dec" min="0.3" max="8" value="2.8" step="0.1">
+      </div>
+      <div class="control-row">
+        <label>Low-partial decay <span id="ldecVal">0.25s</span></label>
+        <input type="range" id="ldec" min="0.05" max="2" value="0.25" step="0.05">
+      </div>
+      <div class="control-row">
+        <label>Master gain <span id="gainVal">0.6</span></label>
+        <input type="range" id="gain" min="0.1" max="1" value="0.6" step="0.05">
+      </div>
+    </div>
+  </div>
+
+  <!-- Partial mix -->
+  <div class="panel">
+    <div class="panel-title">Additive Partials <span style="color:var(--accent2);font-size:9px;letter-spacing:0.1em;margin-left:8px">(from FFT)</span></div>
+    <table class="partials-table">
+      <thead>
+        <tr>
+          <th>Freq</th>
+          <th>Ratio</th>
+          <th>dB</th>
+          <th class="partial-gain-cell">Level</th>
+          <th>T60</th>
+        </tr>
+      </thead>
+      <tbody id="partialsBody"></tbody>
+    </table>
+  </div>
+
+  <!-- FM & color -->
+  <div class="panel">
+    <div class="panel-title">FM / Noise Shaping</div>
+    <div class="controls-grid">
+      <div class="control-row">
+        <label>FM depth <span id="fmdVal">8</span></label>
+        <input type="range" id="fmd" min="0" max="60" value="8" step="1">
+      </div>
+      <div class="control-row">
+        <label>FM decay <span id="fmDecVal">0.15s</span></label>
+        <input type="range" id="fmDec" min="0.02" max="1" value="0.15" step="0.01">
+      </div>
+      <div class="control-row">
+        <label>Strike noise <span id="noiseVal">0.3</span></label>
+        <input type="range" id="noiseAmt" min="0" max="1" value="0.3" step="0.05">
+      </div>
+      <div class="control-row">
+        <label>Noise decay <span id="nDecVal">0.04s</span></label>
+        <input type="range" id="nDec" min="0.01" max="0.2" value="0.04" step="0.005">
+      </div>
+    </div>
+  </div>
+
+  <!-- Sequencer -->
+  <div class="panel">
+    <div class="panel-title">Sequence</div>
+    <div class="seq-row">
+      <button class="seq-btn" id="seqOnce" onclick="playSequence('once')">Single</button>
+      <button class="seq-btn" id="seqSlow" onclick="playSequence('slow')">Slow toll</button>
+      <button class="seq-btn" id="seqCarillon" onclick="playSequence('carillon')">Carillon</button>
+      <button class="seq-btn" id="seqStop" onclick="stopSequence()">■ Stop</button>
+    </div>
+  </div>
+
+  <!-- Visualizer -->
+  <div class="panel" style="padding:16px">
+    <div class="panel-title">Waveform</div>
+    <canvas id="viz"></canvas>
+  </div>
+
+  <footer>
+    <span class="tag">223 Hz</span><span class="tag">615 Hz</span><span class="tag">1154 Hz</span><span class="tag">1807 Hz</span><span class="tag">2555 Hz</span><span class="tag">3382 Hz</span><br><br>
+    Reconstructed from spectral analysis · Additive synthesis + FM transient shaping + strike noise
+  </footer>
+</div>
+
+<script>
+// ── Analysed partials from FFT of Bell2.mp3 ─────────────────────────────────
+const PARTIALS = [
+  { freq: 223,  db: -21.3, t60: 0.25,  label: 'low',    ratio: '1.00×' },
+  { freq: 615,  db:  -8.7, t60: 1.25,  label: 'main',   ratio: '2.76×' },
+  { freq: 1154, db:   0.0, t60: 5.0,   label: 'shimmer',ratio: '5.17×' },
+  { freq: 1807, db: -36.1, t60: 6.0,   label: 'upper',  ratio: '8.10×' },
+  { freq: 2555, db: -39.3, t60: 6.0,   label: 'high',   ratio:'11.46×' },
+  { freq: 3382, db: -30.4, t60: 0.75,  label: 'clang',  ratio:'15.17×' },
+];
+
+// Initial gain per partial from dB analysis
+const dbToLinear = db => Math.pow(10, db / 20);
+const partialGains = PARTIALS.map(p => dbToLinear(p.db));
+
+// ── Audio context ────────────────────────────────────────────────────────────
+let ctx = null;
+let analyser = null;
+let masterGain = null;
+
+function initAudio() {
+  if (ctx) return;
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  analyser = ctx.createAnalyser();
+  analyser.fftSize = 1024;
+  masterGain = ctx.createGain();
+  masterGain.connect(analyser);
+  analyser.connect(ctx.destination);
+  startViz();
+}
+
+// ── Bell synthesis patch ─────────────────────────────────────────────────────
+function strikeBell(time = null) {
+  if (!ctx) initAudio();
+  if (ctx.state === 'suspended') ctx.resume();
+  const t = time ?? ctx.currentTime + 0.005;
+
+  const p = getParams();
+
+  // Master volume for this strike
+  const strikeGain = ctx.createGain();
+  strikeGain.connect(masterGain);
+
+  // 1. NOISE BURST — hammer/clapper transient
+  if (p.noiseAmt > 0) {
+    const bufLen = ctx.sampleRate * 0.08;
+    const noiseBuffer = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+    const nd = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) nd[i] = (Math.random() * 2 - 1);
+
+    const noiseSource = ctx.createBufferSource();
+    noiseSource.buffer = noiseBuffer;
+    noiseSource.loop = true;
+
+    // Band-pass around fundamental
+    const nbp = ctx.createBiquadFilter();
+    nbp.type = 'bandpass';
+    nbp.frequency.value = 600;
+    nbp.Q.value = 0.8;
+    noiseSource.connect(nbp);
+
+    const noiseGainNode = ctx.createGain();
+    noiseGainNode.gain.setValueAtTime(p.noiseAmt * p.masterGain, t);
+    noiseGainNode.gain.exponentialRampToValueAtTime(0.0001, t + p.noiseDec);
+    nbp.connect(noiseGainNode);
+    noiseGainNode.connect(strikeGain);
+
+    noiseSource.start(t);
+    noiseSource.stop(t + p.noiseDec + 0.01);
+  }
+
+  // 2. ADDITIVE PARTIALS
+  PARTIALS.forEach((partial, i) => {
+    const freq = partial.freq;
+    const gain = partialGains[i] * p.masterGain * getPartialLevel(i);
+
+    // Each partial: sine osc with individual envelope
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+
+    // FM modulation — adds inharmonic clang at attack
+    const fmOsc = ctx.createOscillator();
+    fmOsc.frequency.value = freq * 2.756; // ratio creates characteristic clang
+    const fmGain = ctx.createGain();
+    fmGain.gain.setValueAtTime(p.fmDepth * freq, t);
+    fmGain.gain.exponentialRampToValueAtTime(0.1, t + p.fmDec);
+    fmOsc.connect(fmGain);
+    fmGain.connect(osc.frequency); // FM into carrier
+
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.linearRampToValueAtTime(gain, t + p.attack / 1000);
+
+    // Individual T60 decay — lower partials decay faster
+    const partialT60 = i < 2 ? p.lowDecay : p.decay;
+    const actualT60 = partialT60 * (partial.t60 / PARTIALS[2].t60);
+    const decayRate = 6.91 / Math.max(actualT60, 0.01); // ln(1000)/T60
+
+    // Approximate exponential with ramp to near-zero
+    env.gain.setTargetAtTime(0.0001, t + p.attack / 1000, actualT60 / 6.91);
+
+    osc.connect(env);
+    env.connect(strikeGain);
+
+    osc.start(t);
+    fmOsc.start(t);
+    const stopTime = t + Math.max(actualT60 * 2, 0.5);
+    osc.stop(stopTime);
+    fmOsc.stop(stopTime);
+  });
+
+  // Auto-cleanup
+  setTimeout(() => {
+    try { strikeGain.disconnect(); } catch(e) {}
+  }, (p.decay * 3 + 0.5) * 1000);
+
+  triggerVisual();
+}
+
+// ── Parameters ───────────────────────────────────────────────────────────────
+function getParams() {
+  return {
+    attack:     parseFloat(document.getElementById('atk').value),
+    decay:      parseFloat(document.getElementById('dec').value),
+    lowDecay:   parseFloat(document.getElementById('ldec').value),
+    masterGain: parseFloat(document.getElementById('gain').value),
+    fmDepth:    parseFloat(document.getElementById('fmd').value) / 1000,
+    fmDec:      parseFloat(document.getElementById('fmDec').value),
+    noiseAmt:   parseFloat(document.getElementById('noiseAmt').value),
+    noiseDec:   parseFloat(document.getElementById('nDec').value),
+  };
+}
+
+function getPartialLevel(i) {
+  const el = document.getElementById(`pgain_${i}`);
+  return el ? parseFloat(el.value) : 1.0;
+}
+
+// ── Build UI ─────────────────────────────────────────────────────────────────
+function buildAnalysisBar() {
+  const bar = document.getElementById('analysisBar');
+  const maxMag = Math.max(...PARTIALS.map(p => dbToLinear(p.db)));
+  PARTIALS.forEach(p => {
+    const height = Math.round((dbToLinear(p.db) / maxMag) * 30);
+    bar.innerHTML += `
+      <div class="partial-cell">
+        <span class="freq">${p.freq}Hz</span>
+        <div class="bar-wrap"><div class="bar" style="height:${height}px"></div></div>
+        <div class="decay-label">${p.t60}s T60</div>
+      </div>`;
+  });
+}
+
+function buildPartialsTable() {
+  const tbody = document.getElementById('partialsBody');
+  PARTIALS.forEach((p, i) => {
+    const initLevel = Math.min(getPartialLevel(i) || 1, 1);
+    tbody.innerHTML += `
+      <tr>
+        <td>${p.freq} Hz</td>
+        <td class="ratio">${p.ratio}</td>
+        <td class="db-val">${p.db.toFixed(1)} dB</td>
+        <td class="partial-gain-cell">
+          <input type="range" id="pgain_${i}" min="0" max="2" step="0.05" value="${initLevel}"
+            oninput="updatePartialLabel(${i}, this.value)">
+        </td>
+        <td style="color:var(--accent3);font-size:10px">${p.t60}s</td>
+      </tr>`;
+  });
+}
+
+function updatePartialLabel(i, val) { /* live update */ }
+
+// ── Range UI feedback ────────────────────────────────────────────────────────
+function bindRanges() {
+  const map = {
+    atk:      (v) => `${v}ms`,
+    dec:      (v) => `${v}s`,
+    ldec:     (v) => `${v}s`,
+    gain:     (v) => v,
+    fmd:      (v) => v,
+    fmDec:    (v) => `${v}s`,
+    noiseAmt: (v) => v,
+    nDec:     (v) => `${v}s`,
+  };
+  const labels = {
+    atk:'atkVal', dec:'decVal', ldec:'ldecVal', gain:'gainVal',
+    fmd:'fmdVal', fmDec:'fmDecVal', noiseAmt:'noiseVal', nDec:'nDecVal'
+  };
+  Object.keys(map).forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const update = () => {
+      document.getElementById(labels[id]).textContent = map[id](el.value);
+      // Update track fill
+      const pct = ((el.value - el.min) / (el.max - el.min) * 100).toFixed(1) + '%';
+      el.style.setProperty('--pct', pct);
+    };
+    el.addEventListener('input', update);
+    update();
+  });
+}
+
+// ── Visualizer ───────────────────────────────────────────────────────────────
+function startViz() {
+  const canvas = document.getElementById('viz');
+  const ctx2d = canvas.getContext('2d');
+  canvas.width = canvas.offsetWidth * window.devicePixelRatio;
+  canvas.height = canvas.offsetHeight * window.devicePixelRatio;
+  const W = canvas.width, H = canvas.height;
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+
+  function draw() {
+    requestAnimationFrame(draw);
+    analyser.getByteTimeDomainData(buf);
+    ctx2d.clearRect(0, 0, W, H);
+    ctx2d.strokeStyle = 'rgba(201,169,110,0.7)';
+    ctx2d.lineWidth = 1.5;
+    ctx2d.shadowColor = 'rgba(201,169,110,0.4)';
+    ctx2d.shadowBlur = 6;
+    ctx2d.beginPath();
+    const slice = W / buf.length;
+    buf.forEach((v, i) => {
+      const x = i * slice;
+      const y = (v / 255) * H;
+      i === 0 ? ctx2d.moveTo(x, y) : ctx2d.lineTo(x, y);
+    });
+    ctx2d.stroke();
+  }
+  draw();
+}
+
+// ── Visual feedback ──────────────────────────────────────────────────────────
+let rippleToggle = 0;
+function triggerVisual() {
+  const btn = document.getElementById('bellBtn');
+  btn.classList.add('ringing');
+  setTimeout(() => btn.classList.remove('ringing'), 150);
+
+  const r = document.getElementById(`ripple${(rippleToggle++ % 2) + 1}`);
+  r.classList.remove('active');
+  void r.offsetWidth;
+  r.classList.add('active');
+}
+
+// ── Sequencer ────────────────────────────────────────────────────────────────
+let seqTimer = null;
+const sequences = {
+  once: [0],
+  slow: [0, 1500, 3000, 4500, 6000, 7500],
+  carillon: [0,130,260,390,520,780,910,1040,1300,1430,1690,1820,2080],
+};
+
+function playSequence(name) {
+  stopSequence();
+  if (name === 'once') { strikeBell(); return; }
+  const times = sequences[name];
+  document.getElementById(`seq${name.charAt(0).toUpperCase()+name.slice(1)}`).classList.add('playing');
+  times.forEach(ms => {
+    const t = setTimeout(() => strikeBell(), ms);
+    seqTimer = t; // rough
+  });
+}
+
+function stopSequence() {
+  for (let id = 1; id < 9999; id++) clearTimeout(id);
+  document.querySelectorAll('.seq-btn').forEach(b => b.classList.remove('playing'));
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+buildAnalysisBar();
+buildPartialsTable();
+bindRanges();
+
+document.getElementById('bellBtn').addEventListener('click', () => {
+  strikeBell();
+});
+
+// Space bar trigger
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && e.target === document.body) {
+    e.preventDefault();
+    strikeBell();
+  }
+});
+</script>
+</body>
+</html>
