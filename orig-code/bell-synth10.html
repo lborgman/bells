@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bell Synthesizer v6</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=Inconsolata:wght@300;400&display=swap');
+  :root{--bg:#0a0c10;--sur:#111318;--brd:#1e2230;--acc:#c9a96e;--acc2:#7eb8c9;--acc3:#9b7ec9;--txt:#d4cfc8;--mut:#5a5f70}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--txt);font-family:'Inconsolata',monospace;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:40px 20px}
+  .container{width:100%;max-width:760px}
+  header{text-align:center;margin-bottom:40px}
+  h1{font-family:'Cormorant Garamond',serif;font-weight:300;font-size:clamp(1.8rem,5vw,3rem);letter-spacing:.08em;color:#ede8df;margin-bottom:5px}
+  h1 em{font-style:italic;color:var(--acc)}
+  .sub{font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--mut)}
+  .panel{background:var(--sur);border:1px solid var(--brd);border-radius:6px;padding:20px;margin-bottom:16px}
+  .pt{font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:var(--mut);margin-bottom:16px;display:flex;align-items:center;gap:10px}
+  .pt::after{content:'';flex:1;height:1px;background:var(--brd)}
+  .note{font-size:9px;color:var(--acc3);font-style:italic}
+  .cg{display:grid;grid-template-columns:1fr 1fr;gap:14px 28px}
+  @media(max-width:500px){.cg{grid-template-columns:1fr}}
+  .cr{display:flex;flex-direction:column;gap:5px}
+  .cr label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);display:flex;justify-content:space-between}
+  .cr label span{color:var(--acc);font-size:11px}
+  input[type=range]{-webkit-appearance:none;width:100%;height:2px;background:var(--brd);border-radius:1px;outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;background:var(--acc);cursor:pointer}
+  .strike-zone{display:flex;justify-content:center;margin-bottom:28px;position:relative}
+  .bell-btn{width:120px;height:120px;border-radius:50%;border:none;cursor:pointer;background:radial-gradient(circle at 40% 35%,#2a2618,#13110a);box-shadow:0 0 0 1px var(--brd),0 0 40px rgba(201,169,110,.08);transition:box-shadow .08s,transform .08s;outline:none;display:flex;align-items:center;justify-content:center}
+  .bell-btn:hover{box-shadow:0 0 0 1px rgba(201,169,110,.4),0 0 60px rgba(201,169,110,.2)}
+  .bell-btn.ringing{transform:scale(.94);box-shadow:0 0 0 1px var(--acc),0 0 80px rgba(201,169,110,.4)}
+  .bell-icon{width:50px;height:50px;fill:var(--acc);filter:drop-shadow(0 0 8px rgba(201,169,110,.4))}
+  .ripple{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:120px;height:120px;border-radius:50%;border:1px solid var(--acc);opacity:0;pointer-events:none}
+  .ripple.active{animation:ro 2s ease-out forwards}
+  @keyframes ro{0%{transform:translate(-50%,-50%) scale(1);opacity:.5}100%{transform:translate(-50%,-50%) scale(5);opacity:0}}
+  .mrow{margin-bottom:10px}.mrow:last-child{margin-bottom:0}
+  .mhd{font-size:9px;color:var(--mut);letter-spacing:.1em;margin-bottom:4px;display:flex;justify-content:space-between}
+  .mtrack{height:3px;background:var(--brd);border-radius:2px;overflow:hidden}
+  .mfill{height:100%;width:0%;border-radius:2px}
+  .sr{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .sb{padding:5px 12px;background:transparent;border:1px solid var(--brd);border-radius:3px;color:var(--mut);font-family:'Inconsolata',monospace;font-size:11px;cursor:pointer;transition:all .15s}
+  .sb:hover,.sb.active{border-color:var(--acc);color:var(--acc);background:rgba(201,169,110,.07)}
+  canvas{width:100%;display:block;border-radius:3px}
+  footer{text-align:center;margin-top:28px;font-size:9px;color:var(--mut);letter-spacing:.1em;line-height:2.4}
+  .tag{display:inline-block;padding:1px 6px;background:rgba(126,184,201,.08);border:1px solid rgba(126,184,201,.18);border-radius:2px;color:var(--acc2);font-size:9px;margin:1px}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Bell <em>Synthesis</em> Patch</h1>
+    <p class="sub">v6 · T60 4.8/4.3/6.8s · shimmer dominates sustain by +21dB</p>
+  </header>
+
+  <div class="panel" style="padding:14px 20px">
+    <div class="mrow">
+      <div class="mhd"><span>Shimmer 1150 Hz — T60 4.8s (loudest in sustain)</span><span id="sT">—</span></div>
+      <div class="mtrack"><div class="mfill" id="sFill" style="background:var(--acc2)"></div></div>
+    </div>
+    <div class="mrow">
+      <div class="mhd"><span>Body 621 Hz — T60 4.3s</span><span id="bT">—</span></div>
+      <div class="mtrack"><div class="mfill" id="bFill" style="background:var(--acc)"></div></div>
+    </div>
+    <div class="mrow">
+      <div class="mhd"><span>Low 222 Hz doublet — T60 6.8s · 2.25 Hz beat</span><span id="lT">—</span></div>
+      <div class="mtrack"><div class="mfill" id="lFill" style="background:var(--acc3)"></div></div>
+    </div>
+  </div>
+
+  <div class="strike-zone">
+    <div class="ripple" id="r1"></div><div class="ripple" id="r2"></div>
+    <button class="bell-btn" id="bellBtn">
+      <svg class="bell-icon" viewBox="0 0 24 24">
+        <path d="M12 2a1 1 0 0 1 1 1v.5C16.386 4.08 19 6.97 19 10.5V15l1.707 1.707A1 1 0 0 1 20 18.5H4a1 1 0 0 1-.707-1.793L5 15v-4.5C5 6.97 7.614 4.08 11 3.5V3a1 1 0 0 1 1-1zm0 20a2 2 0 0 1-2-2h4a2 2 0 0 1-2 2z"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="panel">
+    <div class="pt">Parameters <span class="note" style="margin-left:8px">T60 from log-linear fit over 3.4s single-strike decay</span></div>
+    <div class="cg">
+      <div class="cr"><label>Shimmer gain <span id="sgV">1.03</span></label><input type="range" id="shimGain" min="0.1" max="3.0" value="2.20" step="0.01"></div>
+      <div class="cr"><label>Shimmer T60 <span id="stV">5.5s</span></label><input type="range" id="shimT60" min="1" max="20" value="4.8" step="0.1"></div>
+      <div class="cr"><label>Body gain <span id="bgV">0.37</span></label><input type="range" id="bodyGain" min="0.05" max="2.0" value="0.37" step="0.01"></div>
+      <div class="cr"><label>Body T60 <span id="btV">3.4s</span></label><input type="range" id="bodyT60" min="0.5" max="15" value="4.3" step="0.1"></div>
+      <div class="cr"><label>Low gain (222 Hz) <span id="lgV">0.11</span></label><input type="range" id="lowGain" min="0.01" max="0.5" value="0.11" step="0.01"></div>
+      <div class="cr"><label>Low T60 <span id="ltV">7.0s</span></label><input type="range" id="lowT60" min="0.5" max="20" value="6.8" step="0.1"></div>
+      <div class="cr"><label>Shimmer swell <span id="saV">70ms</span></label><input type="range" id="shimAtk" min="10" max="200" value="70" step="5"></div>
+      <div class="cr"><label>Master gain <span id="mgV">0.65</span></label><input type="range" id="masterGain" min="0.1" max="1.5" value="0.65" step="0.05"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="pt">Sequence</div>
+    <div class="sr">
+      <button class="sb" onclick="doStrike()">Single</button>
+      <button class="sb" id="sqSlow"    onclick="playSeq('slow')">Slow toll</button>
+      <button class="sb" id="sqCar"     onclick="playSeq('carillon')">Carillon</button>
+      <button class="sb" onclick="stopSeq()">■ Stop</button>
+    </div>
+  </div>
+
+  <div class="panel" style="padding:12px">
+    <canvas id="viz" style="height:64px"></canvas>
+  </div>
+
+  <footer>
+    <span class="tag">220.2+222.45 Hz · Δ2.25 Hz · T60 6.8s</span>
+    <span class="tag">612.8+621.0 Hz · T60 4.3s</span>
+    <span class="tag">1147.6+1153.6 Hz · 70ms swell · T60 4.8s</span>
+    <span class="tag">3382 Hz · T60 6s</span>
+    <br>T60 values from log-linear regression over 3.4s clean single-strike window<br>
+    <span style="color:var(--acc3)">Click bell or press Space</span>
+  </footer>
+</div>
+
+<script>
+// Measured T60 values from log-linear fit over 3.4s single-strike window:
+//   222 Hz doublet: T60 = 7.1s,  initial = -28.9 dB rel 621Hz peak
+//   621 Hz body:    T60 = 3.4s,  initial =  -8.6 dB
+//   1150 Hz shimmer:T60 = 5.5s,  initial = +10.3 dB  ← loudest in sustain, swells 70ms
+//   3382 Hz clang:  T60 = 6.2s,  initial = -29.6 dB
+//   1796 Hz upper:  gone by 150ms
+
+const LN1000 = 6.9078;
+let actx = null, analyser = null, masterNode = null;
+
+function initAudio() {
+  if (actx) return;
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  analyser = actx.createAnalyser(); analyser.fftSize = 1024;
+  masterNode = actx.createGain();
+  masterNode.connect(analyser); analyser.connect(actx.destination);
+  startViz();
+}
+
+const pv = id => +document.getElementById(id).value;
+
+function strikeBell(offset = 0) {
+  initAudio();
+  if (actx.state === 'suspended') actx.resume();
+  const t0 = actx.currentTime + 0.005 + offset;
+  const master = pv('masterGain');
+  const sg = actx.createGain(); sg.gain.value = 1; sg.connect(masterNode);
+
+  function addOsc(freq, gain, t60, atkSec) {
+    const tau = t60 / LN1000;
+    const osc = actx.createOscillator();
+    osc.type = 'sine'; osc.frequency.value = freq;
+    const env = actx.createGain();
+    const g = gain * master;
+    if (atkSec <= 0.005) {
+      env.gain.setValueAtTime(g, t0);
+    } else {
+      env.gain.setValueAtTime(0.0001, t0);
+      env.gain.linearRampToValueAtTime(g, t0 + atkSec);
+    }
+    env.gain.setTargetAtTime(0.0001, t0 + Math.max(atkSec, 0.001), tau);
+    osc.connect(env); env.connect(sg);
+    const stopAt = t0 + t60 * 3.0;
+    osc.start(t0); osc.stop(stopAt);
+  }
+
+  const shimGain = pv('shimGain');
+  const shimT60  = pv('shimT60');
+  const shimAtk  = pv('shimAtk') / 1000;
+  const bodyGain = pv('bodyGain');
+  const bodyT60  = pv('bodyT60');
+  const lowGain  = pv('lowGain');
+  const lowT60   = pv('lowT60');
+
+  // Low doublet — direct 2.25 Hz beat
+  addOsc(222.45, lowGain,        lowT60,  0.004);
+  addOsc(220.20, lowGain * 0.80, lowT60,  0.004);
+
+  // Body doublet
+  addOsc(621.0,  bodyGain,        bodyT60, 0.004);
+  addOsc(612.8,  bodyGain * 0.90, bodyT60, 0.004);
+
+  // Shimmer doublet — swells over ~70ms
+  addOsc(1153.6, shimGain,        shimT60, shimAtk);
+  addOsc(1147.6, shimGain * 0.85, shimT60, shimAtk);
+
+  // Upper / clang
+  addOsc(1796.0, 0.012, 0.12, 0.004);   // very short — gone by 150ms
+  addOsc(3382.0, 0.035, 6.2,  0.004);
+
+  // Strike noise burst
+  const nBuf = actx.createBuffer(1, Math.ceil(actx.sampleRate * 0.08), actx.sampleRate);
+  const nd = nBuf.getChannelData(0);
+  for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  const ns = actx.createBufferSource(); ns.buffer = nBuf;
+  const nbp = actx.createBiquadFilter(); nbp.type = 'bandpass';
+  nbp.frequency.value = 700; nbp.Q.value = 1.0;
+  const ng = actx.createGain();
+  ng.gain.setValueAtTime(0.12 * master, t0);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.025);
+  ns.connect(nbp); nbp.connect(ng); ng.connect(sg);
+  ns.start(t0); ns.stop(t0 + 0.09);
+
+  const cleanup = (Math.max(shimT60, lowT60) * 3.0 + offset + 1) * 1000;
+  setTimeout(() => { try { sg.disconnect(); } catch(e) {} }, cleanup);
+}
+
+// Sustain meters
+let mStart = null;
+function startMeters() { mStart = performance.now(); tickMeters(); }
+function tickMeters() {
+  if (!mStart) return;
+  const el = (performance.now() - mStart) / 1000;
+  const sT = pv('shimT60'), bT = pv('bodyT60'), lT = pv('lowT60');
+  const sAtk = pv('shimAtk') / 1000;
+  const bA = Math.exp(-LN1000 * el / bT);
+  const lA = Math.exp(-LN1000 * el / lT);
+  const sRaw = Math.exp(-LN1000 * Math.max(0, el - sAtk) / sT);
+  const sA = Math.min(el / sAtk, 1.0) * sRaw;
+  document.getElementById('sFill').style.width = (sA * 100).toFixed(1) + '%';
+  document.getElementById('bFill').style.width = (bA * 100).toFixed(1) + '%';
+  document.getElementById('lFill').style.width = (lA * 100).toFixed(1) + '%';
+  const fmt = (v, t) => v > 0.003 ? `+${t.toFixed(1)}s (${(20*Math.log10(v)).toFixed(1)}dB)` : 'decayed';
+  document.getElementById('sT').textContent = fmt(sA, el);
+  document.getElementById('bT').textContent = fmt(bA, el);
+  document.getElementById('lT').textContent = fmt(lA, el);
+  if (el < Math.max(sT, bT, lT) * 2.5) requestAnimationFrame(tickMeters);
+  else {
+    ['sFill','bFill','lFill'].forEach(id => document.getElementById(id).style.width = '0%');
+    ['sT','bT','lT'].forEach(id => document.getElementById(id).textContent = '—');
+    mStart = null;
+  }
+}
+
+function startViz() {
+  const canvas = document.getElementById('viz');
+  const c = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.offsetWidth * dpr; canvas.height = canvas.offsetHeight * dpr;
+  const W = canvas.width, H = canvas.height;
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+  (function draw() {
+    requestAnimationFrame(draw);
+    analyser.getByteTimeDomainData(buf);
+    c.clearRect(0, 0, W, H);
+    c.strokeStyle = 'rgba(201,169,110,.7)'; c.lineWidth = 1.5;
+    c.shadowColor = 'rgba(201,169,110,.25)'; c.shadowBlur = 4;
+    c.beginPath();
+    buf.forEach((v,i) => { const x=i*W/buf.length, y=v/255*H; i?c.lineTo(x,y):c.moveTo(x,y); });
+    c.stroke();
+  })();
+}
+
+function bindRanges() {
+  [
+    ['shimGain','sgV',v=>parseFloat(v).toFixed(2)],
+    ['shimT60','stV',v=>v+'s'],
+    ['bodyGain','bgV',v=>parseFloat(v).toFixed(2)],
+    ['bodyT60','btV',v=>v+'s'],
+    ['lowGain','lgV',v=>parseFloat(v).toFixed(2)],
+    ['lowT60','ltV',v=>v+'s'],
+    ['shimAtk','saV',v=>v+'ms'],
+    ['masterGain','mgV',v=>parseFloat(v).toFixed(2)],
+  ].forEach(([id,lid,fmt]) => {
+    const el = document.getElementById(id);
+    el.addEventListener('input', () => document.getElementById(lid).textContent = fmt(el.value));
+  });
+}
+
+let rt = 0;
+function triggerVisual() {
+  const btn = document.getElementById('bellBtn');
+  btn.classList.add('ringing'); setTimeout(() => btn.classList.remove('ringing'), 150);
+  const r = document.getElementById('r' + (rt++ % 2 + 1));
+  r.classList.remove('active'); void r.offsetWidth; r.classList.add('active');
+  startMeters();
+}
+
+function doStrike(offset = 0) { strikeBell(offset); if (!offset) triggerVisual(); }
+
+let sqIds = [];
+const SEQS = {
+  slow:     [0, 2500, 5000, 7500, 10000, 12500],
+  carillon: [0, 130, 260, 390, 520, 780, 910, 1040, 1300, 1560, 1820, 2080],
+};
+function playSeq(name) {
+  stopSeq();
+  document.getElementById('sq' + name[0].toUpperCase() + name.slice(1))?.classList.add('active');
+  SEQS[name].forEach(ms => sqIds.push(setTimeout(() => { strikeBell(); triggerVisual(); }, ms)));
+}
+function stopSeq() {
+  sqIds.forEach(clearTimeout); sqIds = [];
+  document.querySelectorAll('.sb').forEach(b => b.classList.remove('active'));
+}
+
+bindRanges();
+document.getElementById('bellBtn').addEventListener('click', () => doStrike());
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); doStrike(); }
+});
+</script>
+</body>
+</html>
