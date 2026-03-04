@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bell Synthesizer — Spectral Patch v4</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=Inconsolata:wght@300;400&display=swap');
+  :root{--bg:#0a0c10;--sur:#111318;--brd:#1e2230;--acc:#c9a96e;--acc2:#7eb8c9;--acc3:#9b7ec9;--txt:#d4cfc8;--mut:#5a5f70}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--txt);font-family:'Inconsolata',monospace;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:40px 20px}
+  .container{width:100%;max-width:780px}
+  header{text-align:center;margin-bottom:44px}
+  h1{font-family:'Cormorant Garamond',serif;font-weight:300;font-size:clamp(1.8rem,5vw,3rem);letter-spacing:.08em;color:#ede8df;margin-bottom:5px}
+  h1 em{font-style:italic;color:var(--acc)}
+  .sub{font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--mut)}
+  .specgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;margin-bottom:32px;border:1px solid var(--brd);border-radius:4px;overflow:hidden}
+  .sc{padding:10px 6px;background:var(--sur);text-align:center;font-size:9px}
+  .sc .f{color:var(--acc);font-size:11px;display:block;margin-bottom:1px}
+  .sc .f2{color:var(--acc2);font-size:10px;display:block;margin-bottom:3px}
+  .sc .bw{height:28px;display:flex;align-items:flex-end;justify-content:center;gap:2px;margin:3px 0}
+  .sc .b{width:9px;border-radius:2px 2px 0 0}
+  .sc .b1{background:linear-gradient(to top,var(--acc),#e8c87a)}
+  .sc .b2{background:linear-gradient(to top,var(--acc2),#a8d8e9)}
+  .sc .dl{color:var(--mut);font-size:8px;line-height:1.6}
+  .strike-zone{display:flex;justify-content:center;margin-bottom:32px;position:relative}
+  .bell-btn{width:130px;height:130px;border-radius:50%;border:none;cursor:pointer;background:radial-gradient(circle at 40% 35%,#2a2618,#13110a);box-shadow:0 0 0 1px var(--brd),0 0 40px rgba(201,169,110,.08),inset 0 1px 0 rgba(255,255,255,.06);transition:box-shadow .08s,transform .08s;outline:none;display:flex;align-items:center;justify-content:center}
+  .bell-btn:hover{box-shadow:0 0 0 1px rgba(201,169,110,.4),0 0 60px rgba(201,169,110,.2)}
+  .bell-btn.ringing{transform:scale(.94);box-shadow:0 0 0 1px var(--acc),0 0 80px rgba(201,169,110,.4)}
+  .bell-icon{width:55px;height:55px;fill:var(--acc);filter:drop-shadow(0 0 8px rgba(201,169,110,.4));transition:filter .1s}
+  .bell-btn:hover .bell-icon{filter:drop-shadow(0 0 14px rgba(201,169,110,.7))}
+  .ripple{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) scale(0);width:130px;height:130px;border-radius:50%;border:1px solid var(--acc);opacity:0;pointer-events:none}
+  .ripple.active{animation:ro 1.8s ease-out forwards}
+  @keyframes ro{0%{transform:translate(-50%,-50%) scale(1);opacity:.6}100%{transform:translate(-50%,-50%) scale(4.5);opacity:0}}
+  .panel{background:var(--sur);border:1px solid var(--brd);border-radius:6px;padding:22px;margin-bottom:18px}
+  .pt{font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:var(--mut);margin-bottom:18px;display:flex;align-items:center;gap:10px}
+  .pt::after{content:'';flex:1;height:1px;background:var(--brd)}
+  .cg{display:grid;grid-template-columns:1fr 1fr;gap:16px 28px}
+  @media(max-width:520px){.cg{grid-template-columns:1fr}.specgrid{grid-template-columns:repeat(2,1fr)}}
+  .cr{display:flex;flex-direction:column;gap:5px}
+  .cr label{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--mut);display:flex;justify-content:space-between;align-items:baseline}
+  .cr label span{color:var(--acc);font-size:11px}
+  input[type=range]{-webkit-appearance:none;width:100%;height:2px;background:var(--brd);border-radius:1px;outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;background:var(--acc);box-shadow:0 0 6px rgba(201,169,110,.5);cursor:pointer;transition:transform .1s}
+  input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.3)}
+  .mrow{margin-bottom:11px}.mrow:last-child{margin-bottom:0}
+  .mhd{font-size:9px;color:var(--mut);letter-spacing:.12em;margin-bottom:4px;display:flex;justify-content:space-between}
+  .mtrack{height:3px;background:var(--brd);border-radius:2px;overflow:hidden}
+  .mfill{height:100%;width:0%;border-radius:2px}
+  .sr{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  .sb{padding:5px 13px;background:transparent;border:1px solid var(--brd);border-radius:3px;color:var(--mut);font-family:'Inconsolata',monospace;font-size:11px;letter-spacing:.1em;cursor:pointer;transition:all .15s}
+  .sb:hover,.sb.playing{border-color:var(--acc);color:var(--acc);background:rgba(201,169,110,.07)}
+  canvas{width:100%;display:block;border-radius:3px}
+  footer{text-align:center;margin-top:32px;font-size:10px;color:var(--mut);letter-spacing:.12em;line-height:2.2}
+  .tag{display:inline-block;padding:1px 6px;background:rgba(126,184,201,.1);border:1px solid rgba(126,184,201,.2);border-radius:2px;color:var(--acc2);font-size:9px;margin:1px}
+  .finding{font-size:9px;color:var(--acc3);font-style:italic;letter-spacing:.04em}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Bell <em>Synthesis</em> Patch</h1>
+    <p class="sub">v5 · 220.2+222.45Hz doublet → direct 2.25Hz beat</p>
+  </header>
+
+  <div class="specgrid" id="specgrid"></div>
+
+  <div class="panel" style="padding:16px 22px">
+    <div class="mrow">
+      <div class="mhd"><span>Shimmer doublet (1147.6 + 1153.6 Hz) — T60 ≈ 45s</span><span id="sT">—</span></div>
+      <div class="mtrack"><div class="mfill" id="sFill" style="background:linear-gradient(to right,var(--acc),var(--acc2))"></div></div>
+    </div>
+    <div class="mrow">
+      <div class="mhd"><span>Body doublet (612.8 + 621.0 Hz) — T60 ≈ 30s</span><span id="bT">—</span></div>
+      <div class="mtrack"><div class="mfill" id="bFill" style="background:linear-gradient(to right,var(--acc2),var(--acc3))"></div></div>
+    </div>
+  </div>
+
+  <div class="strike-zone">
+    <div class="ripple" id="r1"></div>
+    <div class="ripple" id="r2"></div>
+    <button class="bell-btn" id="bellBtn" title="Click or Space">
+      <svg class="bell-icon" viewBox="0 0 24 24">
+        <path d="M12 2a1 1 0 0 1 1 1v.5C16.386 4.08 19 6.97 19 10.5V15l1.707 1.707A1 1 0 0 1 20 18.5H4a1 1 0 0 1-.707-1.793L5 15v-4.5C5 6.97 7.614 4.08 11 3.5V3a1 1 0 0 1 1-1zm0 20a2 2 0 0 1-2-2h4a2 2 0 0 1-2 2z"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="panel">
+    <div class="pt">Doublet beating <span class="finding" style="margin-left:8px">6Hz + 8.2Hz → their difference = ~2.2Hz slow beat</span></div>
+    <div class="cg">
+      <div class="cr"><label>Low beat (221 Hz) <span id="lb1v">2.25 Hz</span></label><input type="range" id="lowBeat" min="0.5" max="6" value="2.25" step="0.05"></div>
+      <div class="cr"><label>Low doublet mix <span id="lb1m">0.80</span></label><input type="range" id="lowMix" min="0" max="1" value="0.80" step="0.05"></div>
+      <div class="cr"><label>Shimmer beat (1150 Hz) <span id="sb1v">6.0 Hz</span></label><input type="range" id="shimBeat" min="0.5" max="15" value="6.0" step="0.1"></div>
+      <div class="cr"><label>Shimmer doublet mix <span id="sb1m">0.85</span></label><input type="range" id="shimMix" min="0" max="1" value="0.85" step="0.05"></div>
+      <div class="cr"><label>Body beat (621 Hz) <span id="sb2v">8.2 Hz</span></label><input type="range" id="bodyBeat" min="0.5" max="20" value="8.2" step="0.1"></div>
+      <div class="cr"><label>Body doublet mix <span id="sb2m">0.90</span></label><input type="range" id="bodyMix" min="0" max="1" value="0.90" step="0.05"></div>
+    </div>
+    <canvas id="beatVis" style="height:50px;margin-top:12px"></canvas>
+  </div>
+
+  <div class="panel">
+    <div class="pt">Envelope <span class="finding" style="margin-left:8px">attack levels from original FFT</span></div>
+    <div class="cg">
+      <div class="cr"><label>Attack <span id="av">4ms</span></label><input type="range" id="atk" min="1" max="50" value="4" step="1"></div>
+      <div class="cr"><label>Shimmer T60 (1150 Hz) <span id="dv">45s</span></label><input type="range" id="dec" min="2" max="70" value="45" step="1"></div>
+      <div class="cr"><label>Body T60 (621 Hz) <span id="bv">30s</span></label><input type="range" id="bdec" min="0.5" max="45" value="30" step="0.5"></div>
+      <div class="cr"><label>Low T60 (223 Hz) <span id="lv">0.5s</span></label><input type="range" id="ldec" min="0.1" max="4" value="0.5" step="0.1"></div>
+      <div class="cr"><label>Master gain <span id="gv">0.60</span></label><input type="range" id="gain" min="0.05" max="1" value="0.60" step="0.05"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="pt">FM clang + strike noise</div>
+    <div class="cg">
+      <div class="cr"><label>FM depth <span id="fv">6</span></label><input type="range" id="fmd" min="0" max="60" value="6" step="1"></div>
+      <div class="cr"><label>FM decay <span id="fdv">0.12s</span></label><input type="range" id="fmDec" min="0.02" max="1" value="0.12" step="0.01"></div>
+      <div class="cr"><label>Strike noise <span id="nv">0.25</span></label><input type="range" id="nAmt" min="0" max="1" value="0.25" step="0.05"></div>
+      <div class="cr"><label>Noise decay <span id="ndv">0.035s</span></label><input type="range" id="nDec" min="0.01" max="0.2" value="0.035" step="0.005"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="pt">Sequence</div>
+    <div class="sr">
+      <button class="sb" onclick="doStrike()">Single</button>
+      <button class="sb" id="sqSlow" onclick="playSeq('slow')">Slow toll</button>
+      <button class="sb" id="sqCar"  onclick="playSeq('carillon')">Carillon</button>
+      <button class="sb" onclick="stopSeq()">■ Stop</button>
+    </div>
+  </div>
+
+  <div class="panel" style="padding:14px">
+    <div class="pt">Waveform</div>
+    <canvas id="viz" style="height:68px"></canvas>
+  </div>
+
+  <footer>
+    <span class="tag">220.2+222.45Hz · −9dB · 0.5s · Δ2.25Hz</span>
+    <span class="tag">612.8+621.0Hz · −3.3dB · 30s · Δ8.2Hz</span>
+    <span class="tag">1147.6+1153.6Hz · −15.7dB · 45s · Δ6Hz</span>
+    <span class="tag">1807Hz · −26dB · 3.25s</span>
+    <span class="tag">3382Hz · −26dB · 1s</span>
+    <br>Attack levels corrected from self-analysis · 621Hz is dominant body peak · shimmer starts quiet<br>
+    <span style="color:var(--acc3)">Click bell or press Space</span>
+  </footer>
+</div>
+
+<script>
+// ─── CORRECTED from self-analysis of rendered output vs original ───────────
+//
+// Key corrections vs previous version:
+//  1. Body doublet: primary peak is 621.0Hz (was wrongly using 612.8 as primary)
+//  2. Attack dB levels now from original FFT attack snapshot (0-100ms):
+//       223Hz: -9.1dB  (was -21.3dB — far too quiet)
+//       body:  -3.3dB  (correct)
+//       shimmer: -15.7dB (was 0.0dB — was FAR too loud at attack)
+//       1807Hz: -26.1dB (was -36.1dB)
+//       3382Hz: -26.3dB (was -30.4dB)
+//  3. Spectral centroid of original attack is 1640Hz; synth was 960Hz → fixed
+//     by correcting the shimmer from dominating the attack
+
+const PARTIALS = [
+  { type:"doublet", f1:222.45, f2:220.20, db:-9.1, t60:0.5, id:"low", beatId:"lowBeat", mixId:"lowMix" },
+  { type:'single',  freq:1796.0, db:-15.2, t60:3.25, id:'upper1' },
+  { type:'single',  freq:2555,   db:-32.0, t60:3.25,  id:'upper2' },
+  { type:'single',  freq:3382,   db:-26.3, t60:1.0,   id:'clang'  },
+  // Body: primary peak at 621.0Hz, secondary at 612.8Hz
+  { type:'doublet', f1:621.0, f2:612.8, db:-3.3,  t60:30.0, id:'body',    beatId:'bodyBeat', mixId:'bodyMix'  },
+  // Shimmer: starts at -15.7dB but outlasts everything else (T60=45s)
+  { type:'doublet', f1:1153.6, f2:1147.6, db:-15.7, t60:45.0, id:'shimmer', beatId:'shimBeat', mixId:'shimMix' },
+];
+
+const d2l = db => Math.pow(10, db/20);
+const LN1000 = 6.9078;
+
+let ctx=null, analyser=null, masterOut=null;
+
+function initAudio(){
+  if(ctx) return;
+  ctx = new(window.AudioContext||window.webkitAudioContext)();
+  analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
+  masterOut = ctx.createGain();
+  masterOut.connect(analyser); analyser.connect(ctx.destination);
+  startViz();
+}
+
+function strikeBell(offsetSec=0){
+  initAudio();
+  if(ctx.state==='suspended') ctx.resume();
+  const p = getParams();
+  const t = ctx.currentTime + 0.005 + offsetSec;
+  const sg = ctx.createGain(); sg.gain.value=1; sg.connect(masterOut);
+
+  // Strike noise
+  if(p.noise > 0.01){
+    const bl = Math.ceil(ctx.sampleRate*0.12);
+    const nb = ctx.createBuffer(1,bl,ctx.sampleRate);
+    const nd = nb.getChannelData(0);
+    for(let i=0;i<bl;i++) nd[i]=Math.random()*2-1;
+    const ns=ctx.createBufferSource(); ns.buffer=nb; ns.loop=true;
+    const nbp=ctx.createBiquadFilter(); nbp.type='bandpass'; nbp.frequency.value=650; nbp.Q.value=0.8;
+    const ng=ctx.createGain();
+    ng.gain.setValueAtTime(p.noise*p.gain, t);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t+p.nDec);
+    ns.connect(nbp); nbp.connect(ng); ng.connect(sg);
+    ns.start(t); ns.stop(t+p.nDec+0.02);
+  }
+
+  PARTIALS.forEach(part => {
+    const g = d2l(part.db) * p.gain;
+    if(g < 0.00005) return;
+
+    let t60;
+    if      (part.id==='low')     t60 = p.lowT60;
+    else if (part.id==='body')    t60 = p.bodyT60;
+    else if (part.id==='shimmer') t60 = p.shimT60;
+    else                          t60 = part.t60;
+
+    const tau    = t60 / LN1000;
+    const stopAt = t + Math.min(t60*1.8, 100);
+
+    if(part.type==='single'){
+      spawnOsc(part.freq, g, t, p, tau, stopAt, sg);
+    } else {
+      const beatHz = p[part.beatId];
+      const mix    = p[part.mixId];
+      // Use exact measured frequencies, not centre±beat/2
+      spawnOsc(part.f1, g*0.8,       t, p, tau, stopAt, sg);
+      spawnOsc(part.f2, g*0.8*mix,   t, p, tau, stopAt, sg);
+    }
+  });
+
+  const cleanupMs = (Math.min(p.shimT60*1.8,100) + offsetSec + 2)*1000;
+  setTimeout(()=>{ try{sg.disconnect();}catch(e){} }, cleanupMs);
+}
+
+function spawnOsc(freq, g, t, p, tau, stopAt, dest){
+  const osc=ctx.createOscillator(); osc.type='sine'; osc.frequency.value=freq;
+  const fmO=ctx.createOscillator(); fmO.frequency.value=freq*2.76;
+  const fmG=ctx.createGain();
+  fmG.gain.setValueAtTime(p.fmDepth*freq, t);
+  fmG.gain.exponentialRampToValueAtTime(0.1, t+p.fmDec);
+  fmO.connect(fmG); fmG.connect(osc.frequency);
+  const env=ctx.createGain();
+  env.gain.setValueAtTime(0.0001, t);
+  env.gain.linearRampToValueAtTime(g, t+p.attack/1000);
+  env.gain.setTargetAtTime(0.0001, t+p.attack/1000, tau);
+  osc.connect(env); env.connect(dest);
+  osc.start(t); fmO.start(t);
+  osc.stop(stopAt); fmO.stop(t+p.fmDec+0.1);
+}
+
+function getParams(){
+  const g = id => +document.getElementById(id).value;
+  return {
+    attack:   g('atk'), shimT60: g('dec'), bodyT60: g('bdec'),
+    lowT60:   g('ldec'), gain:   g('gain'),
+    fmDepth:  g('fmd')/1000, fmDec: g('fmDec'),
+    noise:    g('nAmt'), nDec:   g('nDec'),
+    lowBeat: g('lowBeat'), lowMix: g('lowMix'), shimBeat: g('shimBeat'), shimMix: g('shimMix'),
+    bodyBeat: g('bodyBeat'), bodyMix: g('bodyMix'),
+  };
+}
+
+// Sustain meters
+let meterStart=null;
+function startMeters(){ meterStart=performance.now(); tickMeters(); }
+function tickMeters(){
+  if(!meterStart) return;
+  const el=(performance.now()-meterStart)/1000;
+  const sT=+document.getElementById('dec').value;
+  const bT=+document.getElementById('bdec').value;
+  const sA=Math.exp(-LN1000*el/sT), bA=Math.exp(-LN1000*el/bT);
+  document.getElementById('sFill').style.width=(sA*100).toFixed(2)+'%';
+  document.getElementById('bFill').style.width=(bA*100).toFixed(2)+'%';
+  document.getElementById('sT').textContent=sA>0.001?`+${el.toFixed(1)}s (${(20*Math.log10(sA)).toFixed(1)}dB)`:'decayed';
+  document.getElementById('bT').textContent=bA>0.001?`+${el.toFixed(1)}s (${(20*Math.log10(bA)).toFixed(1)}dB)`:'decayed';
+  if(el<Math.max(sT,bT)*1.5) requestAnimationFrame(tickMeters);
+  else{
+    ['sFill','bFill'].forEach(id=>document.getElementById(id).style.width='0%');
+    ['sT','bT'].forEach(id=>document.getElementById(id).textContent='—');
+    meterStart=null;
+  }
+}
+
+function drawBeatPreview(){
+  const canvas=document.getElementById('beatVis');
+  const c=canvas.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  canvas.width=canvas.offsetWidth*dpr; canvas.height=canvas.offsetHeight*dpr;
+  const W=canvas.width,H=canvas.height;
+  c.clearRect(0,0,W,H);
+  c.fillStyle='rgba(20,24,34,0.6)'; c.fillRect(0,0,W,H);
+  const draw=(beatHz,mix,col)=>{
+    c.beginPath(); c.strokeStyle=col; c.lineWidth=1.3;
+    for(let px=0;px<W;px++){
+      const t=(px/W)*2.0;
+      const env=Math.abs(1+mix*Math.cos(2*Math.PI*beatHz*t))/(1+mix);
+      const y=H/2-env*(H*0.44);
+      px===0?c.moveTo(px,y):c.lineTo(px,y);
+    }
+    c.stroke();
+  };
+  draw(+document.getElementById('shimBeat').value,+document.getElementById('shimMix').value,'rgba(201,169,110,0.7)');
+  draw(+document.getElementById('bodyBeat').value,+document.getElementById('bodyMix').value,'rgba(126,184,201,0.55)');
+  c.font=`${9*dpr}px Inconsolata,monospace`;
+  c.fillStyle='rgba(201,169,110,0.65)'; c.fillText('— shimmer 6Hz beat',6*dpr,13*dpr);
+  c.fillStyle='rgba(126,184,201,0.65)'; c.fillText('— body 8.2Hz beat',6*dpr,24*dpr);
+  c.fillStyle='rgba(155,126,201,0.65)'; c.fillText('interaction → ~2Hz',W/2,13*dpr);
+  c.fillStyle='rgba(90,95,112,0.7)';   c.fillText('2s',W-18*dpr,13*dpr);
+}
+
+function buildSpecGrid(){
+  const grid=document.getElementById('specgrid');
+  [
+    {f:'223 Hz',      f2:null,          note:'single · −9dB',     h1:18, h2:0,  dl:'0.5s T60'},
+    {f:'621.0 Hz',    f2:'612.8 Hz',    note:'doublet Δ8.2Hz · −3dB',h1:27,h2:24,dl:'30s T60'},
+    {f:'1153.6 Hz',   f2:'1147.6 Hz',   note:'doublet Δ6Hz · −16dB', h1:12,h2:10,dl:'45s T60'},
+    {f:'1807+3382 Hz',f2:null,          note:'upper partials',    h1:10, h2:0,  dl:'1–3.25s T60'},
+  ].forEach(it=>{
+    grid.innerHTML+=`<div class="sc">
+      <span class="f">${it.f}</span>
+      <span class="f2">${it.f2??'·'}</span>
+      <div class="bw">
+        <div class="b b1" style="height:${it.h1}px"></div>
+        ${it.h2?`<div class="b b2" style="height:${it.h2}px"></div>`:''}
+      </div>
+      <div class="dl">${it.note}<br>${it.dl}</div>
+    </div>`;
+  });
+}
+
+function bindRanges(){
+  const beatIds=new Set(['shimBeat','shimMix','bodyBeat','bodyMix']);
+  [
+    ['atk','av',v=>v+'ms'],['dec','dv',v=>v+'s'],['bdec','bv',v=>v+'s'],['ldec','lv',v=>v+'s'],
+    ['gain','gv',v=>v],['fmd','fv',v=>v],['fmDec','fdv',v=>v+'s'],
+    ['nAmt','nv',v=>parseFloat(v).toFixed(2)],['nDec','ndv',v=>v+'s'],
+    ['lowBeat','lb1v',v=>v+' Hz'],['lowMix','lb1m',v=>v],['shimBeat','sb1v',v=>v+' Hz'],['shimMix','sb1m',v=>v],
+    ['bodyBeat','sb2v',v=>v+' Hz'],['bodyMix','sb2m',v=>v],
+  ].forEach(([id,lid,fmt])=>{
+    const el=document.getElementById(id);
+    const up=()=>{ document.getElementById(lid).textContent=fmt(el.value); if(beatIds.has(id)) drawBeatPreview(); };
+    el.addEventListener('input',up); up();
+  });
+}
+
+function startViz(){
+  const canvas=document.getElementById('viz');
+  const c=canvas.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  canvas.width=canvas.offsetWidth*dpr; canvas.height=canvas.offsetHeight*dpr;
+  const W=canvas.width,H=canvas.height;
+  const buf=new Uint8Array(analyser.frequencyBinCount);
+  (function draw(){
+    requestAnimationFrame(draw);
+    analyser.getByteTimeDomainData(buf);
+    c.clearRect(0,0,W,H);
+    c.strokeStyle='rgba(201,169,110,.75)'; c.lineWidth=1.5;
+    c.shadowColor='rgba(201,169,110,.3)'; c.shadowBlur=5;
+    c.beginPath();
+    buf.forEach((v,i)=>{ const x=i*W/buf.length,y=v/255*H; i?c.lineTo(x,y):c.moveTo(x,y); });
+    c.stroke();
+  })();
+}
+
+let rt=0;
+function triggerVisual(){
+  const btn=document.getElementById('bellBtn');
+  btn.classList.add('ringing'); setTimeout(()=>btn.classList.remove('ringing'),150);
+  const r=document.getElementById('r'+(rt++%2+1));
+  r.classList.remove('active'); void r.offsetWidth; r.classList.add('active');
+  startMeters();
+}
+
+function doStrike(offset=0){ strikeBell(offset); if(!offset) triggerVisual(); }
+
+let sqIds=[];
+const SEQS={slow:[0,2500,5000,7500,10000,12500],carillon:[0,130,260,390,520,780,910,1040,1300,1560,1820,2080]};
+function playSeq(name){
+  stopSeq();
+  document.getElementById('sq'+name[0].toUpperCase()+name.slice(1))?.classList.add('playing');
+  SEQS[name].forEach(ms=>sqIds.push(setTimeout(()=>{strikeBell();triggerVisual();},ms)));
+}
+function stopSeq(){sqIds.forEach(clearTimeout);sqIds=[];document.querySelectorAll('.sb').forEach(b=>b.classList.remove('playing'));}
+
+buildSpecGrid(); bindRanges(); drawBeatPreview();
+document.getElementById('bellBtn').addEventListener('click',()=>doStrike());
+document.addEventListener('keydown',e=>{if(e.code==='Space'&&e.target===document.body){e.preventDefault();doStrike();}});
+</script>
+</body>
+</html>
