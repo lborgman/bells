@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bell Synthesizer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=Inconsolata:wght@300;400&display=swap');
+  :root{--bg:#0a0c10;--sur:#111318;--brd:#1e2230;--acc:#c9a96e;--acc2:#7eb8c9;--acc3:#9b7ec9;--txt:#d4cfc8;--mut:#5a5f70}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--txt);font-family:'Inconsolata',monospace;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:40px 20px}
+  .container{width:100%;max-width:820px}
+  header{text-align:center;margin-bottom:36px}
+  h1{font-family:'Cormorant Garamond',serif;font-weight:300;font-size:clamp(1.8rem,5vw,3rem);letter-spacing:.08em;color:#ede8df;margin-bottom:6px}
+  h1 em{font-style:italic;color:var(--acc)}
+  .sub{font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--mut)}
+
+  /* Bell selector */
+  .bell-tabs{display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid var(--brd);padding-bottom:0}
+  .bell-tab{padding:8px 20px;background:transparent;border:1px solid transparent;border-bottom:none;border-radius:4px 4px 0 0;color:var(--mut);font-family:'Inconsolata',monospace;font-size:11px;letter-spacing:.15em;cursor:pointer;transition:all .15s;margin-bottom:-1px}
+  .bell-tab.active{border-color:var(--brd);border-bottom-color:var(--sur);background:var(--sur);color:var(--acc)}
+  .bell-tab:hover:not(.active){color:var(--txt)}
+
+  .panel{background:var(--sur);border:1px solid var(--brd);border-radius:0 6px 6px 6px;padding:20px;margin-bottom:16px}
+  .panel-plain{background:var(--sur);border:1px solid var(--brd);border-radius:6px;padding:20px;margin-bottom:16px}
+  .pt{font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:var(--mut);margin-bottom:14px;display:flex;align-items:center;gap:10px}
+  .pt::after{content:'';flex:1;height:1px;background:var(--brd)}
+  .note{font-size:9px;color:var(--acc3);font-style:italic}
+
+  /* Partial rows */
+  .partial-row{display:grid;grid-template-columns:110px 1fr 80px 80px 60px;gap:8px;align-items:center;margin-bottom:10px;padding:8px 10px;border:1px solid var(--brd);border-radius:4px;background:rgba(0,0,0,.2)}
+  .partial-row.inactive{opacity:.4}
+  .pr-label{font-size:10px;color:var(--acc2);letter-spacing:.05em}
+  .pr-freq{font-size:9px;color:var(--mut)}
+  .pr-bar{height:3px;background:var(--brd);border-radius:2px;position:relative;cursor:pointer}
+  .pr-fill{height:100%;border-radius:2px;pointer-events:none}
+  .pr-val{font-size:10px;color:var(--acc);text-align:right}
+  .pr-t60{font-size:9px;color:var(--mut);text-align:right}
+  .pr-toggle{width:18px;height:18px;border-radius:50%;border:1px solid var(--brd);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:8px;color:var(--mut);transition:all .15s;flex-shrink:0}
+  .pr-toggle.on{border-color:var(--acc);background:rgba(201,169,110,.15);color:var(--acc)}
+
+  .cg2{display:grid;grid-template-columns:1fr 1fr;gap:12px 24px}
+  @media(max-width:520px){.cg2{grid-template-columns:1fr}.partial-row{grid-template-columns:90px 1fr 60px 60px 24px}}
+  .cr{display:flex;flex-direction:column;gap:5px}
+  .cr label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);display:flex;justify-content:space-between}
+  .cr label span{color:var(--acc);font-size:11px}
+  input[type=range]{-webkit-appearance:none;width:100%;height:2px;background:var(--brd);border-radius:1px;outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;background:var(--acc);cursor:pointer}
+
+  .strike-zone{display:flex;justify-content:center;margin-bottom:24px;position:relative}
+  .bell-btn{width:110px;height:110px;border-radius:50%;border:none;cursor:pointer;background:radial-gradient(circle at 40% 35%,#2a2618,#13110a);box-shadow:0 0 0 1px var(--brd),0 0 40px rgba(201,169,110,.08);transition:box-shadow .08s,transform .08s;outline:none;display:flex;align-items:center;justify-content:center}
+  .bell-btn:hover{box-shadow:0 0 0 1px rgba(201,169,110,.4),0 0 60px rgba(201,169,110,.2)}
+  .bell-btn.ringing{transform:scale(.94);box-shadow:0 0 0 1px var(--acc),0 0 80px rgba(201,169,110,.4)}
+  .bell-icon{width:46px;height:46px;fill:var(--acc);filter:drop-shadow(0 0 8px rgba(201,169,110,.4))}
+  .ripple{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:110px;height:110px;border-radius:50%;border:1px solid var(--acc);opacity:0;pointer-events:none}
+  .ripple.active{animation:ro 2s ease-out forwards}
+  @keyframes ro{0%{transform:translate(-50%,-50%) scale(1);opacity:.5}100%{transform:translate(-50%,-50%) scale(5);opacity:0}}
+
+  .sr{display:flex;gap:6px;flex-wrap:wrap}
+  .sb{padding:5px 12px;background:transparent;border:1px solid var(--brd);border-radius:3px;color:var(--mut);font-family:'Inconsolata',monospace;font-size:11px;cursor:pointer;transition:all .15s}
+  .sb:hover,.sb.active{border-color:var(--acc);color:var(--acc);background:rgba(201,169,110,.07)}
+  canvas{width:100%;display:block;border-radius:3px}
+  footer{text-align:center;margin-top:24px;font-size:9px;color:var(--mut);letter-spacing:.1em;line-height:2.2}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Bell <em>Synthesis</em> Patch</h1>
+    <p class="sub">generalised · spectral model · two bells</p>
+  </header>
+
+  <!-- Bell selector tabs -->
+  <div class="bell-tabs" id="bellTabs">
+    <button class="bell-tab active" data-bell="0">Bell 1 · 621 Hz</button>
+    <button class="bell-tab"        data-bell="1">Bell 2 · 694 Hz</button>
+    <button class="bell-tab"        data-bell="mix">Mixed</button>
+  </div>
+
+  <!-- Partials editor (hidden in mix mode) -->
+  <div class="panel" id="partialsPanel">
+    <div class="pt">Partials <span class="note" style="margin-left:8px">gain · T60 · on/off</span></div>
+    <div id="partialRows"></div>
+  </div>
+
+  <!-- Mix panel (shown only in mix mode) -->
+  <div class="panel" id="mixPanel" style="display:none">
+    <div class="pt">Mix <span class="note" style="margin-left:8px">weight per bell · blends gain &amp; T60 at Bell 1 frequencies</span></div>
+    <div class="cg2">
+      <div class="cr"><label>Bell 1 weight <span id="mix0V">1.00</span></label><input type="range" id="mix0" min="0" max="1" value="1.0" step="0.01"></div>
+      <div class="cr"><label>Bell 2 weight <span id="mix1V">0.70</span></label><input type="range" id="mix1" min="0" max="1" value="0.7" step="0.01"></div>
+    </div>
+  </div>
+
+  <!-- Strike & viz -->
+  <div class="strike-zone">
+    <div class="ripple" id="r1"></div><div class="ripple" id="r2"></div>
+    <button class="bell-btn" id="bellBtn">
+      <svg class="bell-icon" viewBox="0 0 24 24">
+        <path d="M12 2a1 1 0 0 1 1 1v.5C16.386 4.08 19 6.97 19 10.5V15l1.707 1.707A1 1 0 0 1 20 18.5H4a1 1 0 0 1-.707-1.793L5 15v-4.5C5 6.97 7.614 4.08 11 3.5V3a1 1 0 0 1 1-1zm0 20a2 2 0 0 1-2-2h4a2 2 0 0 1-2 2z"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="panel-plain">
+    <div class="pt">Global</div>
+    <div class="cg2">
+      <div class="cr"><label>Master gain <span id="mgV">0.55</span></label><input type="range" id="masterGain" min="0.05" max="1.5" value="0.55" step="0.05"></div>
+      <div class="cr"><label>Strike noise <span id="nV">0.15</span></label><input type="range" id="noiseAmt" min="0" max="0.5" value="0.15" step="0.01"></div>
+      <div class="cr"><label>Pitch shift <span id="psV">1.00×</span></label><input type="range" id="pitchShift" min="0.5" max="2.0" value="1.0" step="0.01"></div>
+    </div>
+  </div>
+
+  <div class="panel-plain">
+    <div class="pt">Sequence</div>
+    <div class="sr">
+      <button class="sb" id="btnSingle">Single</button>
+      <button class="sb" id="sqSlow">Slow toll</button>
+      <button class="sb" id="sqCar">Carillon</button>
+      <button class="sb" id="btnStop">■ Stop</button>
+    </div>
+  </div>
+
+  <div class="panel-plain" style="padding:12px">
+    <canvas id="viz" style="height:60px"></canvas>
+  </div>
+
+  <footer>
+    Spectral model · partials fitted from original recordings<br>
+    <span style="color:var(--acc3)">Click bell or press Space</span>
+  </footer>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SCRIPT TAG 1 — DATA · AUDIO ENGINE · SEQUENCER  (Sections 1, 2, 3)
+     Isolated scope: cannot access anything declared in Script Tag 2.
+     To convert to an ESM module, move this block to bell-engine.js and
+     change the last line to:
+       export { createEngine, createSequencer, PATTERNS, SOURCES, BELLS };
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script>
+// =============================================================================
+// SECTION 2 — AUDIO ENGINE
+// Pure Web Audio API. No DOM references. No access to variables in Script Tag 2.
+// Public API:  createEngine(destination) → { strike, analyser }
+//              strike(bellDef, { masterGain, noiseAmt, offsetSec })
+// =============================================================================
+
+const LN1000 = 6.9078; // ln(1000), used to convert T60 → time constant
+
+function createEngine(destination, { pitchShift = 1.0, suppressDoublets = false } = {}) {
+  const actx     = destination.context;
+  const analyser = actx.createAnalyser();
+  analyser.fftSize = 1024;
+  const masterBus = actx.createGain();
+  masterBus.connect(analyser);
+  analyser.connect(destination);
+
+  function _addOscillator(freq, gain, t60, atkSec, t0, busNode) {
+    const tau    = t60 / LN1000;
+    const stopAt = t0 + Math.min(t60 * 2.0, 90);
+
+    const osc = actx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+
+    const env = actx.createGain();
+    if (atkSec <= 0.005) {
+      env.gain.setValueAtTime(gain, t0);
+    } else {
+      env.gain.setValueAtTime(0.0001, t0);
+      env.gain.linearRampToValueAtTime(gain, t0 + atkSec);
+    }
+    env.gain.setTargetAtTime(0.0001, t0 + Math.max(atkSec, 0.001), tau);
+
+    osc.connect(env);
+    env.connect(busNode);
+    osc.start(t0);
+    osc.stop(stopAt);
+    return stopAt;
+  }
+
+  function _addNoise(primef1, noiseAmt, masterGain, t0, busNode) {
+    const bufLen = Math.ceil(actx.sampleRate * 0.08);
+    const nb  = actx.createBuffer(1, bufLen, actx.sampleRate);
+    const nd  = nb.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) nd[i] = Math.random() * 2 - 1;
+
+    const ns  = actx.createBufferSource(); ns.buffer = nb;
+    const nbp = actx.createBiquadFilter();
+    nbp.type = 'bandpass';
+    nbp.frequency.value = primef1;
+    nbp.Q.value = 1.0;
+
+    const ng = actx.createGain();
+    ng.gain.setValueAtTime(noiseAmt * masterGain, t0);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.025);
+
+    ns.connect(nbp); nbp.connect(ng); ng.connect(busNode);
+    ns.start(t0); ns.stop(t0 + 0.09);
+  }
+
+  function strike(bellDef, { masterGain = 0.55, noiseAmt = 0.15, offsetSec = 0 } = {}) {
+    if (actx.state === 'suspended') actx.resume();
+
+    const t0  = actx.currentTime + 0.005 + offsetSec;
+    const bus = actx.createGain();
+    bus.gain.value = 1;
+    bus.connect(masterBus);
+
+    let maxStop = t0 + 1;
+
+    bellDef.partials.forEach(p => {
+      if (!p.enabled || p.gain < 0.001) return;
+      const atkSec = p.atkMs / 1000;
+
+      // Doublet: two oscillators at f1 (full gain) and f2 (88% gain).
+      // suppressDoublets: only f1 is used — avoids artefact beating when
+      // mixing bells whose doublet asymmetries are physically unrelated.
+      const tones = (p.f2 && !suppressDoublets)
+        ? [[p.f1 * pitchShift, 1.00], [p.f2 * pitchShift, 0.88]]
+        : [[p.f1 * pitchShift, 1.00]];
+
+      tones.forEach(([freq, frac]) => {
+        const g    = p.gain * frac * masterGain * 0.3;
+        const stop = _addOscillator(freq, g, p.t60, atkSec, t0, bus);
+        maxStop = Math.max(maxStop, stop);
+      });
+    });
+
+    if (noiseAmt > 0.001) {
+      const primef1 = bellDef.partials.find(p => p.label === 'Prime')?.f1 ?? 700;
+      _addNoise(primef1 * pitchShift, noiseAmt, masterGain, t0, bus);
+    }
+
+    // Release bus node after sound ends
+    setTimeout(() => { try { bus.disconnect(); } catch (_) {} },
+      (maxStop - actx.currentTime + 2) * 1000);
+  }
+
+  return { strike, analyser };
+}
+
+// =============================================================================
+// SECTION 1 — DATA
+// Source recordings and bell spectral definitions.
+// This is the section most likely to grow as more bells are added.
+//
+// Partial schema:
+//   label   : campanology name (Prime, Nominal, Superquint, Oct·Nominal, Sub …)
+//   f1      : frequency in Hz
+//   f2      : second frequency of doublet in Hz, or null for a single tone
+//             beat frequency = |f1 - f2|
+//   gain    : relative amplitude (normalised so loudest partial = 1.0)
+//   t60     : decay time in seconds (log-linear fit over full recording)
+//   atkMs   : attack ramp in milliseconds (>5ms models a swell; ≤5ms = instant)
+//   enabled : whether this partial is active on load
+// =============================================================================
+
+// Link display names to original source files
+const SOURCES = {
+  'Bell 1': 'Bell2.mp3',
+  'Bell 2': 'sBell2.mp3',
+};
+
+const BELLS = [
+  {
+    name: 'Bell 1 · 621 Hz',
+    source: SOURCES['Bell 1'],
+    partials: [
+      // Sub — anomalous low doublet, 2.25 Hz beat, fast single-strike transient only
+      { label:'Sub',         f1:222.45, f2:220.20, gain:0.50, t60:0.4,  atkMs:4,  enabled:true },
+      // Prime — dominant at onset, 8.2 Hz doublet beat
+      { label:'Prime',       f1:621.00, f2:612.80, gain:1.00, t60:48,   atkMs:4,  enabled:true },
+      // Nominal — swells over 70ms, dominates sustain, 6 Hz doublet beat
+      { label:'Nominal',     f1:1153.6, f2:1147.6, gain:1.55, t60:59,   atkMs:70, enabled:true },
+      // Superquint — brief transient, gone by ~150ms
+      { label:'Superquint',  f1:1796.0, f2:null,   gain:0.20, t60:0.15, atkMs:4,  enabled:true },
+      // Oct·Nominal — bright clang, very long decay
+      { label:'Oct·Nominal', f1:3382.0, f2:null,   gain:0.70, t60:145,  atkMs:4,  enabled:true },
+    ],
+  },
+  {
+    name: 'Bell 2 · 694 Hz',
+    source: SOURCES['Bell 2'],
+    partials: [
+      // Prime — dominant at onset, 2.02 Hz doublet beat
+      { label:'Prime',       f1:694.22, f2:696.25, gain:1.00, t60:48,   atkMs:4,  enabled:true },
+      // Nominal — swells over 50ms, dominates sustain
+      { label:'Nominal',     f1:1924.8, f2:null,   gain:1.40, t60:29,   atkMs:50, enabled:true },
+      // Superquint
+      { label:'Superquint',  f1:3580.4, f2:null,   gain:0.35, t60:23,   atkMs:4,  enabled:true },
+      // Mains hum — 60 Hz recording artefact, not a bell partial
+      { label:'Mains hum',   f1:60.0,   f2:null,   gain:0.15, t60:200,  atkMs:4,  enabled:false },
+    ],
+  },
+];
+
+
+// =============================================================================
+// SECTION 3 — SEQUENCER
+// Schedules repeated strike() calls. No DOM or audio knowledge.
+// Public API:  createSequencer(strikeFn)
+//              sequencer.play(pattern)   pattern = array of ms offsets
+//              sequencer.stop()
+//              PATTERNS                  named pattern library
+// =============================================================================
+
+const PATTERNS = {
+  slow:     [0, 3000, 6000, 9000, 12000, 15000],
+  carillon: [0, 130, 260, 390, 520, 780, 910, 1040, 1300, 1560, 1820, 2080],
+};
+
+function createSequencer(strikeFn) {
+  let _ids = [];
+
+  function play(pattern) {
+    stop();
+    pattern.forEach(ms => {
+      _ids.push(setTimeout(strikeFn, ms));
+    });
+  }
+
+  function stop() {
+    _ids.forEach(clearTimeout);
+    _ids = [];
+  }
+
+  return { play, stop, PATTERNS };
+}
+
+// =============================================================================
+// SECTION 2b — MIXED ENGINE
+// Blends the spectral character of multiple bells into a single synthesis.
+// Keeps the frequencies (f1, f2, doublets) of the first (reference) bell
+// unchanged. For each partial label shared across bells, gain and T60 are
+// weighted-averaged across all entries. Partials unique to the reference bell
+// are kept at their natural values; partials unique to other bells are ignored
+// (they have no corresponding frequency in the reference).
+//
+// Public API:  createMixedEngine(destination, entries) → { strike, analyser }
+//              entries = [{ bellDef, weight }, …]
+//              The first entry is the reference bell (supplies all frequencies).
+//              weight (0.0–1.0) controls each bell's contribution to the blend.
+// =============================================================================
+
+function blendBells(entries) {
+  // entries: [{ bellDef, weight }, …]
+  // Returns a new bellDef whose frequencies come from entries[0].bellDef
+  // and whose gain/T60 per partial are weighted averages across all entries.
+
+  const reference  = entries[0].bellDef;
+  const totalWeight = entries.reduce((s, e) => s + e.weight, 0) || 1;
+
+  const blendedPartials = reference.partials.map(refPartial => {
+    // Collect (gain, t60, weight) from every bell that has this partial label
+    let gainSum = 0, t60Sum = 0, wSum = 0;
+    entries.forEach(({ bellDef, weight }) => {
+      const match = bellDef.partials.find(p => p.label === refPartial.label);
+      if (match && match.enabled) {
+        // Normalise each bell's gain relative to its own Prime before blending,
+        // so bells with different absolute levels contribute proportionally.
+        const ownPrime = bellDef.partials.find(p => p.label === 'Prime');
+        const normGain = ownPrime ? match.gain / ownPrime.gain : match.gain;
+        gainSum += normGain * weight;
+        t60Sum  += match.t60 * weight;
+        wSum    += weight;
+      }
+    });
+
+    if (wSum === 0) {
+      // No other bell has this partial — keep reference values unchanged
+      return { ...refPartial };
+    }
+
+    // Re-scale blended gain back relative to reference Prime gain
+    const refPrime     = reference.partials.find(p => p.label === 'Prime');
+    const refPrimeGain = refPrime ? refPrime.gain : 1.0;
+
+    return {
+      ...refPartial,
+      gain: (gainSum / wSum) * refPrimeGain,
+      t60:   t60Sum  / wSum,
+      // atkMs stays from reference — the attack shape is a property of the
+      // reference bell's geometry, not something we blend
+    };
+  });
+
+  return { ...reference, name: 'Mixed', partials: blendedPartials };
+}
+
+function createMixedEngine(destination, entries) {
+  const blended = blendBells(entries);
+  // Single engine, single set of frequencies — no artefact beating
+  const engine  = createEngine(destination);
+  const { strike: _strike, analyser } = engine;
+
+  function strike(_ignored, params = {}) {
+    _strike(blended, params);
+  }
+
+  return { strike, analyser };
+}
+
+// Future ESM export:  export { createEngine, createMixedEngine, blendBells, createSequencer, PATTERNS, SOURCES, BELLS };
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SCRIPT TAG 2 — UI only  (Section 4)
+     Reads BELLS, SOURCES, PATTERNS, createEngine, createSequencer
+     from Script Tag 1.  When Tag 1 becomes an ESM module, replace those
+     globals with:  import { ... } from './bell-engine.js';
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script type="module">
+// =============================================================================
+// SECTION 4 — UI
+// All DOM wiring. Calls into Data, Audio Engine, and Sequencer only via their
+// public APIs. This is the section that stays in the HTML file when the rest
+// moves to an ESM module.
+// =============================================================================
+
+let currentBell  = 0;       // index into BELLS, or 'mix'
+let engine       = null;
+let _engineKey   = null;    // string key to detect when engine needs rebuilding
+
+// ── Audio init (deferred until first gesture) ────────────────────────────────
+function _actx() {
+  // Reuse existing AudioContext if we have one
+  return engine ? engine.analyser.context
+    : new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function _mixKey() {
+  const w0 = document.getElementById('mix0').value;
+  const w1 = document.getElementById('mix1').value;
+  return `mix:${w0}:${w1}`;
+}
+
+function _pitchKey() {
+  return `single:${currentBell}:${document.getElementById('pitchShift').value}`;
+}
+
+function getEngine() {
+  if (currentBell === 'mix') {
+    const key = _mixKey();
+    if (engine && _engineKey === key) return engine;
+    const entries = BELLS.map((bellDef, i) => ({
+      bellDef,
+      weight: +document.getElementById(`mix${i}`).value,
+    }));
+    engine     = createMixedEngine(_actx().destination, entries);
+    _engineKey = key;
+  } else {
+    const key = _pitchKey();
+    if (engine && _engineKey === key) return engine;
+    const pitch = +document.getElementById('pitchShift').value;
+    engine     = createEngine(_actx().destination, { pitchShift: pitch });
+    _engineKey = key;
+  }
+  startViz(engine.analyser);
+  return engine;
+}
+
+// ── Strike helpers ───────────────────────────────────────────────────────────
+function getGlobalParams() {
+  return {
+    masterGain: +document.getElementById('masterGain').value,
+    noiseAmt:   +document.getElementById('noiseAmt').value,
+  };
+}
+
+function doStrike() {
+  const bellDef = currentBell === 'mix' ? BELLS[0] : BELLS[currentBell];
+  getEngine().strike(bellDef, getGlobalParams());
+  triggerVisual();
+}
+
+// ── Sequencer ────────────────────────────────────────────────────────────────
+const sequencer = createSequencer(() => {
+  const bellDef = currentBell === 'mix' ? BELLS[0] : BELLS[currentBell];
+  getEngine().strike(bellDef, getGlobalParams());
+  triggerVisual();
+});
+
+function playSeq(name) {
+  stopSeq();
+  document.getElementById('sq' + name[0].toUpperCase() + name.slice(1))
+    ?.classList.add('active');
+  sequencer.play(PATTERNS[name]);
+}
+
+function stopSeq() {
+  sequencer.stop();
+  document.querySelectorAll('.sb').forEach(b => b.classList.remove('active'));
+}
+
+// ── Bell selector ────────────────────────────────────────────────────────────
+function loadBell(idx) {
+  currentBell = idx;
+  engine = null; _engineKey = null;  // force engine rebuild on next strike
+  document.querySelectorAll('.bell-tab')
+    .forEach(t => t.classList.toggle('active', t.dataset.bell === String(idx)));
+  const isMix = idx === 'mix';
+  document.getElementById('partialsPanel').style.display = isMix ? 'none' : '';
+  document.getElementById('mixPanel').style.display      = isMix ? ''     : 'none';
+  if (!isMix) renderPartials();
+}
+
+// ── Partials editor ──────────────────────────────────────────────────────────
+function renderPartials() {
+  const bell      = BELLS[currentBell];
+  const container = document.getElementById('partialRows');
+  container.innerHTML = '';
+  const COLORS = ['#c9a96e', '#7eb8c9', '#9b7ec9', '#6eb89b', '#c96e7e'];
+
+  bell.partials.forEach((p, i) => {
+    const col     = COLORS[i % COLORS.length];
+    const freqStr = p.f2
+      ? `${p.f1.toFixed(2)} + ${p.f2.toFixed(2)} Hz  Δ${Math.abs(p.f1 - p.f2).toFixed(2)} Hz`
+      : `${p.f1.toFixed(2)} Hz`;
+    const t60Str  = p.t60 < 1 ? `${(p.t60 * 1000).toFixed(0)}ms` : `${p.t60}s`;
+
+    const row = document.createElement('div');
+    row.className = 'partial-row' + (p.enabled ? '' : ' inactive');
+    row.id = `pr${i}`;
+    row.innerHTML = `
+      <div>
+        <div class="pr-label">${p.label}</div>
+        <div class="pr-freq">${freqStr}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div class="pr-bar" id="gainBar${i}" title="Gain">
+          <div class="pr-fill" id="gainFill${i}" style="background:${col};width:${Math.min(p.gain / 2 * 100, 100)}%"></div>
+        </div>
+        <div class="pr-bar" id="t60Bar${i}" title="T60">
+          <div class="pr-fill" id="t60Fill${i}" style="background:${col}55;width:${Math.min(p.t60 / 200 * 100, 100)}%"></div>
+        </div>
+      </div>
+      <div class="pr-val" id="gainVal${i}">${p.gain.toFixed(2)}</div>
+      <div class="pr-t60" id="t60Val${i}">T60 ${t60Str}</div>
+      <button class="pr-toggle ${p.enabled ? 'on' : ''}" id="tog${i}"
+              title="Enable/disable">✓</button>
+    `;
+    container.appendChild(row);
+
+    document.getElementById(`tog${i}`).addEventListener('click', () => togglePartial(i));
+    makeBarDraggable(document.getElementById(`gainBar${i}`), 0, 2,
+      v => { bell.partials[i].gain = v; _refreshPartialRow(i); });
+    makeBarDraggable(document.getElementById(`t60Bar${i}`), 0.05, 200,
+      v => { bell.partials[i].t60  = v; _refreshPartialRow(i); });
+  });
+}
+
+function _refreshPartialRow(i) {
+  const p      = BELLS[currentBell].partials[i];
+  const t60Str = p.t60 < 1 ? `${(p.t60 * 1000).toFixed(0)}ms` : `${p.t60.toFixed(0)}s`;
+  document.getElementById(`gainFill${i}`).style.width = Math.min(p.gain / 2 * 100, 100) + '%';
+  document.getElementById(`t60Fill${i}`).style.width  = Math.min(p.t60 / 200 * 100, 100) + '%';
+  document.getElementById(`gainVal${i}`).textContent  = p.gain.toFixed(2);
+  document.getElementById(`t60Val${i}`).textContent   = 'T60 ' + t60Str;
+}
+
+function togglePartial(i) {
+  const p = BELLS[currentBell].partials[i];
+  p.enabled = !p.enabled;
+  document.getElementById(`pr${i}`).className  = 'partial-row' + (p.enabled ? '' : ' inactive');
+  document.getElementById(`tog${i}`).className = 'pr-toggle'   + (p.enabled ? ' on' : '');
+}
+
+function makeBarDraggable(el, min, max, onChange) {
+  function update(e) {
+    const rect = el.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    onChange(min + x * (max - min));
+  }
+  el.addEventListener('mousedown', e => {
+    update(e);
+    const onMove = e2 => update(e2);
+    const onUp   = ()  => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+  el.addEventListener('touchstart', e => { e.preventDefault(); update(e); }, { passive: false });
+  el.addEventListener('touchmove',  e => { e.preventDefault(); update(e); }, { passive: false });
+}
+
+// ── Global control labels ────────────────────────────────────────────────────
+document.getElementById('masterGain').addEventListener('input', function () {
+  document.getElementById('mgV').textContent = parseFloat(this.value).toFixed(2);
+});
+document.getElementById('noiseAmt').addEventListener('input', function () {
+  document.getElementById('nV').textContent = parseFloat(this.value).toFixed(2);
+});
+document.getElementById('pitchShift').addEventListener('input', function () {
+  document.getElementById('psV').textContent = parseFloat(this.value).toFixed(2) + '×';
+});
+document.getElementById('mix0').addEventListener('input', function () {
+  document.getElementById('mix0V').textContent = parseFloat(this.value).toFixed(2);
+});
+document.getElementById('mix1').addEventListener('input', function () {
+  document.getElementById('mix1V').textContent = parseFloat(this.value).toFixed(2);
+});
+
+// ── Waveform visualiser ──────────────────────────────────────────────────────
+function startViz(analyser) {
+  const canvas = document.getElementById('viz');
+  const ctx    = canvas.getContext('2d');
+  const dpr    = window.devicePixelRatio || 1;
+  canvas.width  = canvas.offsetWidth  * dpr;
+  canvas.height = canvas.offsetHeight * dpr;
+  const W = canvas.width, H = canvas.height;
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+
+  (function draw() {
+    requestAnimationFrame(draw);
+    analyser.getByteTimeDomainData(buf);
+    ctx.clearRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(201,169,110,.7)';
+    ctx.lineWidth   = 1.5;
+    ctx.shadowColor = 'rgba(201,169,110,.25)';
+    ctx.shadowBlur  = 4;
+    ctx.beginPath();
+    buf.forEach((v, i) => {
+      const x = i * W / buf.length;
+      const y = v / 255 * H;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  })();
+}
+
+// ── Strike visual feedback ───────────────────────────────────────────────────
+let _rippleIdx = 0;
+function triggerVisual() {
+  const btn = document.getElementById('bellBtn');
+  btn.classList.add('ringing');
+  setTimeout(() => btn.classList.remove('ringing'), 150);
+  const r = document.getElementById('r' + (_rippleIdx++ % 2 + 1));
+  r.classList.remove('active');
+  void r.offsetWidth; // force reflow to restart animation
+  r.classList.add('active');
+}
+
+// ── Event bindings ───────────────────────────────────────────────────────────
+
+// Bell selector tabs
+document.getElementById('bellTabs').addEventListener('click', e => {
+  const btn = e.target.closest('[data-bell]');
+  if (!btn) return;
+  const val = btn.dataset.bell;
+  loadBell(val === 'mix' ? 'mix' : +val);
+});
+
+// Sequence buttons
+document.getElementById('btnSingle').addEventListener('click', doStrike);
+document.getElementById('sqSlow').addEventListener('click', () => playSeq('slow'));
+document.getElementById('sqCar').addEventListener('click',  () => playSeq('carillon'));
+document.getElementById('btnStop').addEventListener('click', stopSeq);
+
+// Bell button and keyboard
+document.getElementById('bellBtn').addEventListener('click', doStrike);
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && e.target === document.body) {
+    e.preventDefault();
+    doStrike();
+  }
+});
+
+// ── Initialise ───────────────────────────────────────────────────────────────
+renderPartials();
+</script>
+</body>
+</html>
