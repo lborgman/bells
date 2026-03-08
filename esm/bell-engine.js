@@ -125,6 +125,16 @@ const BELLS = [
 const LN1000 = 6.9078;
 
 /**
+ * Per-partial amplitude scale factor.
+ * Prevents clipping when multiple partials sum at the output.
+ * With 3 partials at gain ≈ 1.0 each, the unscaled peak sum would approach 3.0.
+ * Dividing by the expected partial count (here 3) keeps the headroom comfortable.
+ * Adjust if bells with significantly more or fewer partials are added.
+ * @constant {number}
+ */
+const PARTIAL_SCALE = 1 / 3;
+
+/**
  * Schedules a sine oscillator with an exponential decay envelope.
  * Private — called only from within strike().
  *
@@ -208,7 +218,7 @@ function _addNoise(primef1, noiseAmt, masterGain, t0, busNode) {
  * Options passed to engine.strike().
  *
  * @typedef {Object} StrikeOptions
- * @property {number} [masterGain=0.55]
+ * @property {number} [masterGain=1.0]
  *   Overall amplitude scalar (0–1).
  * @property {number} [noiseAmt=0.15]
  *   Strike-noise amplitude (0–0.5). Set to 0 to silence the transient click.
@@ -273,7 +283,7 @@ function createEngine(destination, { pitchShift = 1.0, suppressDoublets = false 
   analyser.connect(destination);
 
   function strike(bellDef, {
-    masterGain  = 0.55,
+    masterGain  = 1.0,
     noiseAmt    = 0.15,
     offsetSec   = 0,
     durationSec = 0,
@@ -310,7 +320,7 @@ function createEngine(destination, { pitchShift = 1.0, suppressDoublets = false 
         : [[p.f1 * pitchShift, 1.00]];
 
       tones.forEach(([freq, frac]) => {
-        const g    = p.gain * frac * masterGain * 0.3;
+        const g    = p.gain * frac * masterGain * PARTIAL_SCALE;
         const stop = _addOscillator(freq, g, p.t60, atkSec, fadeSec, t0, bus);
         maxStop = Math.max(maxStop, stop);
       });
@@ -445,8 +455,8 @@ const PATTERNS = {
  * // 4 s inhale at natural pitch, sound fades over 300 ms at phase end
  * await strikeBreath(BELLS[0], { soundDuration: 4, phaseDuration: 4, msFade: 300 });
  *
- * // 4 s exhale at slightly lower pitch
- * await strikeBreath(BELLS[0], { pitchShift: 0.9, soundDuration: 4, phaseDuration: 4, msFade: 300 });
+ * // 4 s exhale at slightly lower pitch and quieter
+ * await strikeBreath(BELLS[0], { pitchShift: 0.9, masterGain: 0.4, soundDuration: 4, phaseDuration: 4, msFade: 300 });
  *
  * @param {BellDef} bellDef
  *   The bell to strike. Typically one entry from BELLS, or a blended BellDef
@@ -454,6 +464,11 @@ const PATTERNS = {
  * @param {Object} options
  * @param {number} [options.pitchShift=1.0]
  *   Frequency multiplier for this phase. Use < 1 for exhale (e.g. 0.9).
+ * @param {number} [options.masterGain=1.0]
+ *   Overall loudness (0.0–1.5). Defaults to 1.0 — use device volume to
+ *   control loudness. Values above 1.0 may distort on phone speakers.
+ * @param {number} [options.noiseAmt=0.15]
+ *   Strike-noise amplitude (0–0.5). Set to 0 to silence the transient click.
  * @param {number} options.soundDuration
  *   How long the bell rings, in seconds. The sound fades out over msFade ms
  *   ending at soundDuration. Must be ≤ phaseDuration.
@@ -471,6 +486,8 @@ const PATTERNS = {
  */
 function strikeBreath(bellDef, {
   pitchShift    = 1.0,
+  masterGain    = 1.0,
+  noiseAmt      = 0.15,
   soundDuration,
   phaseDuration,
   msFade        = 300,
@@ -487,6 +504,8 @@ function strikeBreath(bellDef, {
   const engine = createEngine(dest, { pitchShift });
 
   engine.strike(bellDef, {
+    masterGain,
+    noiseAmt,
     durationSec: soundDuration,
     stopAtSec:   soundDuration,
     msFade,
