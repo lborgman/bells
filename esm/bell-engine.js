@@ -1,5 +1,5 @@
 /**
- * @fileoverview Bell synthesis engine — Data, Audio Engine, Sequencer.
+ * @fileoverview Bell synthesis engine — Data, Audio Engine, Patterns.
  *
  * Intended use: breathing-exercise PWA.
  *   - Inhale cue: strike a bell at its natural pitch.
@@ -7,6 +7,8 @@
  *                 (slightly lower pitch signals the transition to exhale).
  *   - Sound duration is controlled per-strike via durationSec (2–8 s).
  *     Without it the bell rings freely to its natural T60 (tens of seconds).
+ *   - stopAtSec provides a hard cut (with 300 ms ramp) at a precise time,
+ *     used by the square breathing cycle to silence sound at phase boundaries.
  *
  * Breathing-exercise usage example:
  * @example
@@ -27,8 +29,8 @@
  * @type {Object.<string, string>}
  */
 const SOURCES = {
-  'Bell 1': 'Bell2.mp3',
-  'Bell 2': 'sBell2.mp3',
+  'Bowl 1': null,   // synthetic — no source recording
+  'Bowl 2': null,
 };
 
 /**
@@ -38,7 +40,7 @@ const SOURCES = {
  * @typedef {Object} Partial
  * @property {string}      label
  *   Campanology name. One of:
- *   'Prime' | 'Nominal' | 'Superquint' | 'Oct·Nominal' | 'Sub' | 'Mains hum'
+ *   'Prime' | 'Nominal' | 'Quint'
  * @property {number}      f1
  *   Frequency in Hz. Always present.
  * @property {number|null} f2
@@ -61,45 +63,54 @@ const SOURCES = {
  * Complete spectral definition of one bell.
  *
  * @typedef {Object} BellDef
- * @property {string}    name     - Display name, e.g. 'Bell 1 · 621 Hz'.
- * @property {string}    source   - Original recording filename (see SOURCES).
+ * @property {string}    name     - Display name, e.g. 'Bowl 1 · 432 Hz'.
+ * @property {string}    source   - Original recording filename, or null if synthetic.
  * @property {Partial[]} partials - Spectral components, ordered low → high frequency.
  */
 
 /**
- * Bell definitions fitted from original recordings.
- * The first entry is the reference bell for blending (see blendBells).
+ * Synthetic Tibetan singing bowl definitions.
+ *
+ * Partial ratios follow measured singing bowl acoustics:
+ *   Prime    1.00×  — strike note, gentle swell, slow doublet shimmer (~1 Hz)
+ *   Nominal  2.00×  — strong octave, warm sustain, core of the "singing" tone
+ *   Quint    2.75×  — softer fifth above octave, adds gentle brightness
+ *
+ * All T60 values are long enough to ring freely but controlled via durationSec
+ * in the breathing-exercise PWA. No harsh high partials (no Superquint or
+ * Oct·Nominal). Doublet beats are slow (0.8–1.2 Hz) — calming rather than agitating.
+ *
+ * The first entry is the reference bowl for blending.
  * @type {BellDef[]}
  */
 const BELLS = [
   {
-    name: 'Bell 1 · 621 Hz',
-    source: SOURCES['Bell 1'],
+    // Bowl 1 — warmer, more fundamental weight
+    // Reference pitch 432 Hz (common for meditation contexts).
+    // Adjust via pitchShift on createEngine() as needed.
+    name: 'Bowl 1 · 432 Hz',
+    source: SOURCES['Bowl 1'],
     partials: [
-      // Sub — anomalous low doublet, 2.25 Hz beat, fast single-strike transient only
-      { label:'Sub',         f1:222.45, f2:220.20, gain:0.50, t60:0.4,  atkMs:4,  enabled:true },
-      // Prime — dominant at onset, 8.2 Hz doublet beat
-      { label:'Prime',       f1:621.00, f2:612.80, gain:1.00, t60:48,   atkMs:4,  enabled:true },
-      // Nominal — swells over 70 ms, dominates sustain, 6 Hz doublet beat
-      { label:'Nominal',     f1:1153.6, f2:1147.6, gain:1.55, t60:59,   atkMs:70, enabled:true },
-      // Superquint — brief transient, gone by ~150 ms
-      { label:'Superquint',  f1:1796.0, f2:null,   gain:0.20, t60:0.15, atkMs:4,  enabled:true },
-      // Oct·Nominal — bright clang, very long decay
-      { label:'Oct·Nominal', f1:3382.0, f2:null,   gain:0.70, t60:145,  atkMs:4,  enabled:true },
+      // Prime — gentle 30 ms swell, 0.8 Hz doublet shimmer
+      { label:'Prime',    f1:432.0,  f2:432.8,  gain:1.00, t60:20, atkMs:30,  enabled:true },
+      // Nominal — swell over 80 ms, strong and warm, very slow 1.0 Hz shimmer
+      { label:'Nominal',  f1:864.0,  f2:865.0,  gain:0.90, t60:25, atkMs:80,  enabled:true },
+      // Quint — soft, swells over 60 ms, fades faster
+      { label:'Quint',    f1:1188.0, f2:null,   gain:0.25, t60:12, atkMs:60,  enabled:true },
     ],
   },
   {
-    name: 'Bell 2 · 694 Hz',
-    source: SOURCES['Bell 2'],
+    // Bowl 2 — slightly brighter, more Nominal presence
+    // Same reference pitch, different spectral balance and beat rates.
+    name: 'Bowl 2 · 432 Hz',
+    source: SOURCES['Bowl 2'],
     partials: [
-      // Prime — dominant at onset, 2.02 Hz doublet beat
-      { label:'Prime',       f1:694.22, f2:696.25, gain:1.00, t60:48,   atkMs:4,  enabled:true },
-      // Nominal — swells over 50 ms, dominates sustain
-      { label:'Nominal',     f1:1924.8, f2:null,   gain:1.40, t60:29,   atkMs:50, enabled:true },
-      // Superquint
-      { label:'Superquint',  f1:3580.4, f2:null,   gain:0.35, t60:23,   atkMs:4,  enabled:true },
-      // Mains hum — 60 Hz recording artefact, not a bell partial; disabled by default
-      { label:'Mains hum',   f1:60.0,   f2:null,   gain:0.15, t60:200,  atkMs:4,  enabled:false },
+      // Prime — slightly faster 1.2 Hz shimmer
+      { label:'Prime',    f1:432.0,  f2:433.2,  gain:1.00, t60:18, atkMs:25,  enabled:true },
+      // Nominal — louder relative to Prime, 0.6 Hz very slow shimmer
+      { label:'Nominal',  f1:864.0,  f2:864.6,  gain:1.10, t60:28, atkMs:90,  enabled:true },
+      // Quint — a touch brighter
+      { label:'Quint',    f1:1188.0, f2:null,   gain:0.30, t60:10, atkMs:50,  enabled:true },
     ],
   },
 ];
@@ -210,6 +221,14 @@ function _addNoise(primef1, noiseAmt, masterGain, t0, busNode) {
  *   2–8   → recommended range for breathing-exercise inhale/exhale cues.
  *   The bell sounds naturally from the strike onset, then fades smoothly
  *   over ≤ 500 ms beginning at durationSec.
+ * @property {number} [stopAtSec=0]
+ *   Hard cut time in seconds after the strike. If > 0, all oscillators are
+ *   silenced instantly at exactly t0 + stopAtSec with no fade whatsoever.
+ *   Used by square breathing to cut sound precisely when the Hold phase begins.
+ *   Takes precedence over durationSec if both are set.
+ * @property {number} [msFade=300]
+ *   Duration of the fade-out ramp in milliseconds applied at stopAtSec.
+ *   300 ms is clearly audible but not abrupt. Ignored when stopAtSec is 0.
  */
 
 /**
@@ -258,6 +277,8 @@ function createEngine(destination, { pitchShift = 1.0, suppressDoublets = false 
     noiseAmt    = 0.15,
     offsetSec   = 0,
     durationSec = 0,
+    stopAtSec   = 0,
+    msFade      = 300,
   } = {}) {
     if (actx.state === 'suspended') actx.resume();
 
@@ -266,6 +287,14 @@ function createEngine(destination, { pitchShift = 1.0, suppressDoublets = false 
     const bus     = actx.createGain();
     bus.gain.value = 1;
     bus.connect(masterBus);
+
+    // Fade-out: ramp the bus gain to zero over msFade ms at the phase boundary.
+    if (stopAtSec > 0) {
+      const cutAt  = t0 + stopAtSec;
+      const fadeSec = Math.max(0.005, msFade / 1000); // minimum 5 ms to avoid click
+      bus.gain.setValueAtTime(1, cutAt - fadeSec);
+      bus.gain.linearRampToValueAtTime(0, cutAt);
+    }
 
     let maxStop = t0 + 1;
 
@@ -387,11 +416,14 @@ function createMixedEngine(destination, entries) {
 
 
 // ---------------------------------------------------------------------------
-// SECTION 3 — SEQUENCER
+// SECTION 3 — PATTERNS
+// Named timing patterns kept as reference. createSequencer has been removed
+// as the breathing-exercise PWA drives its own timing loop.
 // ---------------------------------------------------------------------------
 
 /**
  * Named timing patterns: arrays of millisecond offsets from the first strike.
+ * Kept as reference for future use; not consumed by the current UI.
  * @type {Object.<string, number[]>}
  */
 const PATTERNS = {
@@ -399,42 +431,68 @@ const PATTERNS = {
   carillon: [0, 130, 260, 390, 520, 780, 910, 1040, 1300, 1560, 1820, 2080],
 };
 
-/**
- * A running sequencer returned by createSequencer().
- *
- * @typedef {Object} Sequencer
- * @property {function(number[]): void} play
- *   Schedule a pattern of strikes. Any currently running pattern is cancelled first.
- * @property {function(): void}         stop
- *   Cancel all pending strikes immediately.
- * @property {typeof PATTERNS}          PATTERNS
- *   Reference to the named pattern library.
- */
+
+// ---------------------------------------------------------------------------
+// SECTION 4 — BREATHING API
+// ---------------------------------------------------------------------------
 
 /**
- * Creates a sequencer that calls a strike function on a millisecond-offset pattern.
- * No knowledge of audio or the DOM — depends only on setTimeout / clearTimeout.
+ * Strikes a bell for one inhale or exhale phase of a breathing cycle,
+ * then resolves when the phase is complete.
  *
- * @param {function(): void} strikeFn
- *   Called once per scheduled strike. Typically a closure:
- *   () => engine.strike(bellDef, { durationSec: 4 })
- * @returns {Sequencer}
+ * Intended as the primary API for the breathing-exercise PWA:
+ * @example
+ * // 4 s inhale at natural pitch, sound fades over 300 ms at phase end
+ * await strikeBreath(BELLS[0], { soundDuration: 4, phaseDuration: 4, msFade: 300 });
+ *
+ * // 4 s exhale at slightly lower pitch
+ * await strikeBreath(BELLS[0], { pitchShift: 0.9, soundDuration: 4, phaseDuration: 4, msFade: 300 });
+ *
+ * @param {BellDef} bellDef
+ *   The bell to strike. Typically one entry from BELLS, or a blended BellDef
+ *   from blendBells().
+ * @param {Object} options
+ * @param {number} [options.pitchShift=1.0]
+ *   Frequency multiplier for this phase. Use < 1 for exhale (e.g. 0.9).
+ * @param {number} options.soundDuration
+ *   How long the bell rings, in seconds. The sound fades out over msFade ms
+ *   ending at soundDuration. Must be ≤ phaseDuration.
+ * @param {number} options.phaseDuration
+ *   Total length of this breath phase in seconds. The returned Promise
+ *   resolves exactly when phaseDuration has elapsed from the strike.
+ * @param {number} [options.msFade=300]
+ *   Duration of the fade-out in milliseconds at the soundDuration cutoff.
+ *   300 ms is clearly audible but not abrupt. Use smaller values for a
+ *   crisper stop, larger for a more gradual release.
+ * @param {AudioNode} [options.destination]
+ *   Web Audio destination node. Defaults to a shared AudioContext destination.
+ *   Pass explicitly when the PWA manages its own AudioContext.
+ * @returns {Promise<void>} Resolves when phaseDuration has elapsed.
  */
-function createSequencer(strikeFn) {
-  let _ids = [];
+function strikeBreath(bellDef, {
+  pitchShift    = 1.0,
+  soundDuration,
+  phaseDuration,
+  msFade        = 300,
+  destination   = null,
+} = {}) {
+  // Resolve destination: use provided node, or fall back to a shared context
+  const dest = destination ?? (() => {
+    if (!strikeBreath._actx) {
+      strikeBreath._actx = new AudioContext();
+    }
+    return strikeBreath._actx.destination;
+  })();
 
-  /** @param {number[]} pattern - Array of millisecond offsets from now. */
-  function play(pattern) {
-    stop();
-    pattern.forEach(ms => { _ids.push(setTimeout(strikeFn, ms)); });
-  }
+  const engine = createEngine(dest, { pitchShift });
 
-  function stop() {
-    _ids.forEach(clearTimeout);
-    _ids = [];
-  }
+  engine.strike(bellDef, {
+    durationSec: soundDuration,
+    stopAtSec:   soundDuration,
+    msFade,
+  });
 
-  return { play, stop, PATTERNS };
+  return new Promise(resolve => setTimeout(resolve, phaseDuration * 1000));
 }
 
-export { createEngine, createMixedEngine, blendBells, createSequencer, PATTERNS, SOURCES, BELLS };
+export { createEngine, createMixedEngine, blendBells, strikeBreath, BELLS };
