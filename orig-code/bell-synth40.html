@@ -1,0 +1,1405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bell Synthesizer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=Inconsolata:wght@300;400&display=swap');
+  :root{--bg:#0a0c10;--sur:#111318;--brd:#1e2230;--acc:#c9a96e;--acc2:#7eb8c9;--acc3:#9b7ec9;--txt:#d4cfc8;--mut:#5a5f70}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--txt);font-family:'Inconsolata',monospace;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:40px 20px}
+  .container{width:100%;max-width:820px}
+  header{text-align:center;margin-bottom:36px}
+  h1{font-family:'Cormorant Garamond',serif;font-weight:300;font-size:clamp(1.8rem,5vw,3rem);letter-spacing:.08em;color:#ede8df;margin-bottom:6px}
+  h1 em{font-style:italic;color:var(--acc)}
+  .sub{font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--mut)}
+
+  /* Bell selector */
+  .bell-tabs{display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid var(--brd);padding-bottom:0}
+  .bell-tab{padding:8px 20px;background:transparent;border:1px solid transparent;border-bottom:none;border-radius:4px 4px 0 0;color:var(--mut);font-family:'Inconsolata',monospace;font-size:11px;letter-spacing:.15em;cursor:pointer;transition:all .15s;margin-bottom:-1px}
+  .bell-tab.active{border-color:var(--brd);border-bottom-color:var(--sur);background:var(--sur);color:var(--acc)}
+  .bell-tab:hover:not(.active){color:var(--txt)}
+
+  .panel{background:var(--sur);border:1px solid var(--brd);border-radius:0 6px 6px 6px;padding:20px;margin-bottom:16px}
+  .panel-plain{background:var(--sur);border:1px solid var(--brd);border-radius:6px;padding:20px;margin-bottom:16px}
+  .pt{font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:var(--mut);margin-bottom:14px;display:flex;align-items:center;gap:10px}
+  .pt::after{content:'';flex:1;height:1px;background:var(--brd)}
+  .note{font-size:9px;color:var(--acc3);font-style:italic}
+
+  /* Partial rows */
+  .partial-row{display:grid;grid-template-columns:110px 1fr 80px 80px 60px;gap:8px;align-items:center;margin-bottom:10px;padding:8px 10px;border:1px solid var(--brd);border-radius:4px;background:rgba(0,0,0,.2)}
+  .partial-row.inactive{opacity:.4}
+  .pr-label{font-size:10px;color:var(--acc2);letter-spacing:.05em}
+  .pr-freq{font-size:9px;color:var(--mut)}
+  .pr-bar{height:3px;background:var(--brd);border-radius:2px;position:relative;cursor:pointer}
+  .pr-fill{height:100%;border-radius:2px;pointer-events:none}
+  .pr-val{font-size:10px;color:var(--acc);text-align:right}
+  .pr-t60{font-size:9px;color:var(--mut);text-align:right}
+  .pr-toggle{width:18px;height:18px;border-radius:50%;border:1px solid var(--brd);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:8px;color:var(--mut);transition:all .15s;flex-shrink:0}
+  .pr-toggle.on{border-color:var(--acc);background:rgba(201,169,110,.15);color:var(--acc)}
+
+  .cg2{display:grid;grid-template-columns:1fr 1fr;gap:12px 24px}
+  @media(max-width:520px){.cg2{grid-template-columns:1fr}.partial-row{grid-template-columns:90px 1fr 60px 60px 24px}}
+  .cr{display:flex;flex-direction:column;gap:5px}
+  .cr label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);display:flex;justify-content:space-between}
+  .cr label span{color:var(--acc);font-size:11px}
+  input[type=range]{-webkit-appearance:none;width:100%;height:2px;background:var(--brd);border-radius:1px;outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;background:var(--acc);cursor:pointer}
+
+  .sr{display:flex;gap:6px;flex-wrap:wrap}
+  .sb{padding:5px 12px;background:transparent;border:1px solid var(--brd);border-radius:3px;color:var(--mut);font-family:'Inconsolata',monospace;font-size:11px;cursor:pointer;transition:all .15s}
+  .sb:hover,.sb.active{border-color:var(--acc);color:var(--acc);background:rgba(201,169,110,.07)}
+  canvas{width:100%;display:block;border-radius:3px}
+  footer{text-align:center;margin-top:24px;font-size:9px;color:var(--mut);letter-spacing:.1em;line-height:2.2}
+
+  /* Square breathing */
+  .sq-diagram{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px;margin-bottom:16px}
+  .sq-phase{padding:12px 10px;border:1px solid var(--brd);border-radius:4px;background:rgba(0,0,0,.2);display:flex;flex-direction:column;gap:4px;transition:border-color .2s,background .2s}
+  .sq-phase.active{border-color:var(--acc);background:rgba(201,169,110,.08)}
+  .sq-phase-label{font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--mut)}
+  .sq-phase.active .sq-phase-label{color:var(--acc)}
+  .sq-phase-bar{height:2px;background:var(--brd);border-radius:1px;overflow:hidden}
+  .sq-phase-fill{height:100%;width:0%;background:var(--acc);border-radius:1px;transition:none}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Bell <em>Synthesis</em> Patch</h1>
+    <p class="sub">generalised · spectral model · two bells</p>
+  </header>
+
+  <div class="panel-plain">
+    <div class="pt">Play</div>
+    <div class="cg2" style="margin-bottom:12px">
+      <div class="cr">
+        <label>Duration <span id="durV">5</span> s</label>
+        <input type="range" id="duration" min="2" max="8" value="5" step="0.5">
+      </div>
+    </div>
+    <div class="sr" style="margin-bottom:12px">
+      <button class="sb" id="btnPlay">▶ Play</button>
+      <button class="sb" id="btnPause">⏸ Pause</button>
+      <button class="sb" id="btnStop">■ Stop</button>
+    </div>
+    <!-- Progress bar -->
+    <div id="progressTrack" style="height:3px;background:var(--brd);border-radius:2px;overflow:hidden">
+      <div id="progressFill" style="height:100%;width:0%;background:var(--acc);border-radius:2px;transition:none"></div>
+    </div>
+  </div>
+
+  <div class="panel-plain">
+    <div class="pt">Square Breathing <span class="note" style="margin-left:8px">4 s per phase · exhale slightly lower</span></div>
+    <!-- 2×2 phase diagram -->
+    <div class="sq-diagram">
+      <div class="sq-phase" id="sqp0">
+        <div class="sq-phase-label">Inhale</div>
+        <div class="sq-phase-bar"><div class="sq-phase-fill" id="sqf0"></div></div>
+      </div>
+      <div class="sq-phase" id="sqp1">
+        <div class="sq-phase-label">Hold</div>
+        <div class="sq-phase-bar"><div class="sq-phase-fill" id="sqf1"></div></div>
+      </div>
+      <div class="sq-phase" id="sqp2">
+        <div class="sq-phase-label">Exhale</div>
+        <div class="sq-phase-bar"><div class="sq-phase-fill" id="sqf2"></div></div>
+      </div>
+      <div class="sq-phase" id="sqp3">
+        <div class="sq-phase-label">Hold</div>
+        <div class="sq-phase-bar"><div class="sq-phase-fill" id="sqf3"></div></div>
+      </div>
+    </div>
+    <div class="sr">
+      <button class="sb" id="sqbStart">▶ Start</button>
+      <button class="sb" id="sqbStop">■ Stop</button>
+    </div>
+  </div>
+
+  <div class="panel-plain" style="padding:12px">
+    <canvas id="viz" style="height:60px"></canvas>
+  </div>
+
+  <div class="panel-plain">
+    <div class="pt">Global</div>
+    <div class="cg2">
+      <div class="cr"><label>Master gain <span id="mgV">1.00</span></label><input type="range" id="masterGain" min="0.05" max="1.5" value="1.0" step="0.05"></div>
+      <div class="cr"><label>Strike noise <span id="nV">0.15</span></label><input type="range" id="noiseAmt" min="0" max="0.5" value="0.15" step="0.01"></div>
+      <div class="cr"><label>Pitch shift <span id="psV">1.00×</span></label><input type="range" id="pitchShift" min="0.5" max="2.0" value="1.0" step="0.01"></div>
+      <div class="cr"><label>Fade out <span id="msFadeV">300</span> ms</label><input type="range" id="msFade" min="0" max="1000" value="300" step="10"></div>
+    </div>
+  </div>
+
+  <!-- Bell selector tabs -->
+  <div class="bell-tabs" id="bellTabs">
+    <button class="bell-tab active" data-bell="0">Bowl 1 · 432 Hz</button>
+    <button class="bell-tab"        data-bell="1">Bowl 2 · 432 Hz</button>
+    <button class="bell-tab"        data-bell="mix">Mixed</button>
+  </div>
+
+  <!-- Partials editor (hidden in mix mode) -->
+  <div class="panel" id="partialsPanel">
+    <div class="pt">Partials <span class="note" style="margin-left:8px">gain · T60 · on/off</span></div>
+    <div id="partialRows"></div>
+  </div>
+
+  <!-- Mix panel (shown only in mix mode) -->
+  <div class="panel" id="mixPanel" style="display:none">
+    <div class="pt">Mix <span class="note" style="margin-left:8px">weight per bell · blends gain &amp; T60 at Bell 1 frequencies</span></div>
+    <div class="cg2">
+      <div class="cr"><label>Bell 1 weight <span id="mix0V">1.00</span></label><input type="range" id="mix0" min="0" max="1" value="1.0" step="0.01"></div>
+      <div class="cr"><label>Bell 2 weight <span id="mix1V">0.70</span></label><input type="range" id="mix1" min="0" max="1" value="0.7" step="0.01"></div>
+    </div>
+  </div>
+
+  <footer>
+    Synthetic Tibetan singing bowl model<br>
+    <span style="color:var(--acc3)">Click bell or press Space to strike · Play for timed sound</span>
+  </footer>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SCRIPT TAG 1 — DATA · AUDIO ENGINE · PATTERNS  (Sections 1, 2, 3)
+     Isolated scope: cannot see anything declared in Script Tag 2.
+     Extraction → ESM module (bell-engine.js):
+       1. Copy the contents of this <script> block to bell-engine.js.
+       2. Uncomment the export line at the bottom.
+       3. In <script type="module"> replace globals with:
+            import { createInternalSyntheticBell, createExternalBellFromFile,
+                     strikeBell, strikeBreath, blendBells, BELLS } from './bell-engine.js';
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script>
+/**
+ * @fileoverview Bell synthesis engine — Data, Audio Engine, Patterns.
+ *
+ * Intended use: breathing-exercise PWA.
+ *   - Inhale cue: strike a bell at its natural pitch.
+ *   - Exhale cue: strike the same bell via an engine with pitchShift < 1
+ *                 (slightly lower pitch signals the transition to exhale).
+ *   - Sound duration is controlled per-strike via stopAtSec (2–8 s).
+ *     Without it the bell rings freely to its natural T60 (tens of seconds).
+ *   - stopAtSec provides a hard cut (with 300 ms ramp) at a precise time,
+ *     used by the square breathing cycle to silence sound at phase boundaries.
+ *
+ * Breathing-exercise usage example:
+ * @example
+ * const inhale = createInternalSyntheticBell(BELLS[0]);
+ * const exhale = createInternalSyntheticBell(BELLS[0], { pitchShift: 0.92 });
+ * strikeBell(inhale, { stopAtSec: 4 });  // bell in  → 4 s inhale
+ * strikeBell(exhale, { stopAtSec: 6 });  // bell out → 6 s exhale
+ */
+
+
+// ---------------------------------------------------------------------------
+// SECTION 1 — DATA
+// ---------------------------------------------------------------------------
+
+/**
+ * Maps human-readable bell names to their original source recording filenames.
+ * @type {Object.<string, string>}
+ */
+const SOURCES = {
+  'Bowl 1': null,   // synthetic — no source recording
+  'Bowl 2': null,
+};
+
+/**
+ * One spectral component of a bell, measured from a recording by
+ * log-linear regression over the full file duration.
+ *
+ * @typedef {Object} Partial
+ * @property {string}      label
+ *   Campanology name. One of:
+ *   'Prime' | 'Nominal' | 'Quint'
+ * @property {number}      f1
+ *   Frequency in Hz. Always present.
+ * @property {number|null} f2
+ *   Second frequency of a doublet pair in Hz, or null for a single tone.
+ *   Beat frequency = |f1 − f2|.
+ * @property {number}      gain
+ *   Relative amplitude. Normalised so the Prime partial = 1.0.
+ * @property {number}      t60
+ *   Natural decay time in seconds (time for the partial to fall 60 dB).
+ *   Fitted from the full recording via log-linear regression.
+ * @property {number}      atkMs
+ *   Attack ramp duration in milliseconds.
+ *   ≤ 5 ms  → instant onset (percussive partials such as Prime).
+ *   > 5 ms  → linear swell (models resonance build-up, e.g. Nominal at 70 ms).
+ * @property {boolean}     enabled
+ *   Whether this partial is active by default.
+ */
+
+/**
+ * Complete spectral definition of one bell.
+ *
+ * @typedef {Object} BellDef
+ * @property {string}    name     - Display name, e.g. 'Bowl 1 · 432 Hz'.
+ * @property {string}    source   - Original recording filename, or null if synthetic.
+ * @property {Partial[]} partials - Spectral components, ordered low → high frequency.
+ */
+
+/**
+ * Synthetic Tibetan singing bowl definitions.
+ *
+ * Partial ratios follow measured singing bowl acoustics:
+ *   Prime    1.00×  — strike note, gentle swell, slow doublet shimmer (~1 Hz)
+ *   Nominal  2.00×  — strong octave, warm sustain, core of the "singing" tone
+ *   Quint    2.75×  — softer fifth above octave, adds gentle brightness
+ *
+ * All T60 values are long enough to ring freely but controlled via stopAtSec
+ * in the breathing-exercise PWA. No harsh high partials (no Superquint or
+ * Oct·Nominal). Doublet beats are slow (0.8–1.2 Hz) — calming rather than agitating.
+ *
+ * The first entry is the reference bowl for blending.
+ * @type {BellDef[]}
+ */
+const BELLS = [
+  {
+    // Bowl 1 — warmer, more fundamental weight
+    // Reference pitch 432 Hz (common for meditation contexts).
+    // Adjust via pitchShift on createInternalSyntheticBell() as needed.
+    name: 'Bowl 1 · 432 Hz',
+    source: SOURCES['Bowl 1'],
+    partials: [
+      // Prime — gentle 30 ms swell, 0.8 Hz doublet shimmer
+      { label:'Prime',    f1:432.0,  f2:432.8,  gain:1.00, t60:20, atkMs:30,  enabled:true },
+      // Nominal — swell over 80 ms, strong and warm, very slow 1.0 Hz shimmer
+      { label:'Nominal',  f1:864.0,  f2:865.0,  gain:0.90, t60:25, atkMs:80,  enabled:true },
+      // Quint — soft, swells over 60 ms, fades faster
+      { label:'Quint',    f1:1188.0, f2:null,   gain:0.25, t60:12, atkMs:60,  enabled:true },
+    ],
+  },
+  {
+    // Bowl 2 — slightly brighter, more Nominal presence
+    // Same reference pitch, different spectral balance and beat rates.
+    name: 'Bowl 2 · 432 Hz',
+    source: SOURCES['Bowl 2'],
+    partials: [
+      // Prime — slightly faster 1.2 Hz shimmer
+      { label:'Prime',    f1:432.0,  f2:433.2,  gain:1.00, t60:18, atkMs:25,  enabled:true },
+      // Nominal — louder relative to Prime, 0.6 Hz very slow shimmer
+      { label:'Nominal',  f1:864.0,  f2:864.6,  gain:1.10, t60:28, atkMs:90,  enabled:true },
+      // Quint — a touch brighter
+      { label:'Quint',    f1:1188.0, f2:null,   gain:0.30, t60:10, atkMs:50,  enabled:true },
+    ],
+  },
+];
+
+
+// ---------------------------------------------------------------------------
+// SECTION 2 — AUDIO ENGINE
+// Pure Web Audio API. No DOM references.
+// ---------------------------------------------------------------------------
+
+/** @constant {number} ln(1000) — converts T60 to RC time constant: τ = T60 / LN1000 */
+const LN1000 = 6.9078;
+
+/**
+ * Per-partial amplitude scale factor.
+ * Prevents clipping when multiple partials sum at the output.
+ * With 3 partials at gain ≈ 1.0 each, the unscaled peak sum would approach 3.0.
+ * Dividing by the expected partial count (here 3) keeps the headroom comfortable.
+ * Adjust if bells with significantly more or fewer partials are added.
+ * @constant {number}
+ */
+const PARTIAL_SCALE = 1 / 3;
+
+/**
+ * Schedules a sine oscillator with an exponential decay envelope.
+ * Private — called only from within strike().
+ *
+ * @param {number}   freq    - Frequency in Hz.
+ * @param {number}   gain    - Peak amplitude (linear).
+ * @param {number}   t60     - Natural decay time in seconds.
+ * @param {number}   atkSec  - Attack ramp in seconds (0 = instant).
+ * @param {number}   t0      - AudioContext time to begin playback.
+ * @param {GainNode} busNode - Destination node in the audio graph.
+ * @returns {number} AudioContext time when the oscillator node stops.
+ */
+function _addOscillator(freq, gain, t60, atkSec, t0, busNode) {
+  const actx   = busNode.context;
+  const tau    = t60 / LN1000;
+  const stopAt = t0 + Math.min(t60 * 2.0, 90);
+
+  const osc = actx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.value = freq;
+
+  const env = actx.createGain();
+  if (atkSec <= 0.005) {
+    env.gain.setValueAtTime(gain, t0);
+  } else {
+    env.gain.setValueAtTime(0.0001, t0);
+    env.gain.linearRampToValueAtTime(gain, t0 + atkSec);
+  }
+  env.gain.setTargetAtTime(0.0001, t0 + Math.max(atkSec, 0.001), tau);
+
+  osc.connect(env);
+  env.connect(busNode);
+  osc.start(t0);
+  osc.stop(stopAt);
+  return stopAt;
+}
+
+/**
+ * Schedules a bandpass-filtered noise burst modelling the strike transient.
+ * Private — called only from within strike().
+ *
+ * @param {number}   primef1    - Bandpass centre frequency in Hz (tracks pitchShift).
+ * @param {number}   noiseAmt   - Noise amplitude scalar (0–0.5).
+ * @param {number}   masterGain - Master amplitude scalar.
+ * @param {number}   t0         - AudioContext start time.
+ * @param {GainNode} busNode    - Destination node in the audio graph.
+ */
+function _addNoise(primef1, noiseAmt, masterGain, t0, busNode) {
+  const actx   = busNode.context;
+  const bufLen = Math.ceil(actx.sampleRate * 0.08);
+  const nb     = actx.createBuffer(1, bufLen, actx.sampleRate);
+  const nd     = nb.getChannelData(0);
+  for (let i = 0; i < bufLen; i++) nd[i] = Math.random() * 2 - 1;
+
+  const ns  = actx.createBufferSource(); ns.buffer = nb;
+  const nbp = actx.createBiquadFilter();
+  nbp.type = 'bandpass';
+  nbp.frequency.value = primef1;
+  nbp.Q.value = 1.0;
+
+  const ng = actx.createGain();
+  ng.gain.setValueAtTime(noiseAmt * masterGain, t0);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.025);
+
+  ns.connect(nbp); nbp.connect(ng); ng.connect(busNode);
+  ns.start(t0); ns.stop(t0 + 0.09);
+}
+
+/**
+ * Options passed to strikeBell().
+ *
+ * @typedef {Object} StrikeOptions
+ * @property {number} [masterGain=1.0]
+ *   Overall amplitude scalar (0–1).
+ * @property {number} [noiseAmt=0.15]
+ *   Strike-noise amplitude (0–0.5). Set to 0 to silence the transient click.
+ * @property {number} [offsetSec=0]
+ *   Delay before the sound starts, in seconds. Useful for pre-scheduling
+ *   a sequence of strikes relative to a shared reference time.
+ * @property {number} [stopAtSec=0]
+ *   Scheduled stop time in seconds after the strike. The bus gain is ramped
+ *   to zero over msFade ms, ending at t0 + stopAtSec.
+ *   0 → bell rings freely to its natural T60.
+ *   For an interactive stop at any time, use the StrikeHandle returned by strikeBell().
+ * @property {number} [msFade=300]
+ *   Fade duration in milliseconds used by both stopAtSec and handle.stop().
+ *   300 ms is clearly audible but not abrupt.
+ */
+
+/**
+ * A bell ready to be struck, returned by createInternalSyntheticBell()
+ * or createExternalBellFromFile(). Pass to strikeBell() or strikeBreath().
+ *
+ * @typedef {Object} Bell
+ * @property {'synthetic'|'file'} type  - How the bell was created.
+ * @property {AnalyserNode}   analyser  - Web Audio AnalyserNode on the bell output.
+ *                                        Connect to a waveform or spectrum visualiser.
+ * @property {function(StrikeOptions=): StrikeHandle} _strike
+ *   Internal strike function. Use strikeBell() rather than calling this directly.
+ */
+
+/**
+ * Handle returned by strikeBell(), allowing the caller to stop a strike
+ * before it has finished ringing naturally.
+ *
+ * @typedef {Object} StrikeHandle
+ * @property {function(number=): void} stop
+ *   Fades out and silences this strike.
+ *   @param {number} [msFade=300] - Fade duration in milliseconds.
+ */
+
+// ── Shared lazy AudioContext ──────────────────────────────────────────────────
+// Created on first call to createInternalSyntheticBell or createExternalBellFromFile.
+// Must be triggered by a user gesture to satisfy browser autoplay policy.
+function _getActx() {
+  if (!_getActx._actx) {
+    _getActx._actx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  return _getActx._actx;
+}
+
+// ── Private engine ────────────────────────────────────────────────────────────
+
+function _createEngine(destination, { pitchShift = 1.0, suppressDoublets = false } = {}) {
+  const actx     = destination.context;
+  const analyser = actx.createAnalyser();
+  analyser.fftSize = 1024;
+  const masterBus = actx.createGain();
+  masterBus.connect(analyser);
+  analyser.connect(destination);
+
+  function strike(bellDef, {
+    masterGain  = 1.0,
+    noiseAmt    = 0.15,
+    offsetSec   = 0,
+    stopAtSec   = 0,
+    msFade      = 300,
+  } = {}) {
+    if (actx.state === 'suspended') actx.resume();
+
+    const t0  = actx.currentTime + 0.005 + offsetSec;
+    const bus = actx.createGain();
+    bus.gain.value = 1;
+    bus.connect(masterBus);
+
+    // Scheduled stop: ramp bus gain to zero over msFade ms ending at t0 + stopAtSec.
+    if (stopAtSec > 0) {
+      const cutAt    = t0 + stopAtSec;
+      const fadesSec = Math.max(0.005, msFade / 1000);
+      bus.gain.setValueAtTime(1, cutAt - fadesSec);
+      bus.gain.linearRampToValueAtTime(0, cutAt);
+    }
+
+    let maxStop = t0 + 1;
+
+    bellDef.partials.forEach(p => {
+      if (!p.enabled || p.gain < 0.001) return;
+      const atkSec = p.atkMs / 1000;
+
+      // Doublet: two oscillators at f1 (full gain) and f2 (88% gain).
+      // suppressDoublets: use only f1 — avoids artefact beating when mixing
+      // bells whose doublet asymmetries are physically unrelated.
+      const tones = (p.f2 && !suppressDoublets)
+        ? [[p.f1 * pitchShift, 1.00], [p.f2 * pitchShift, 0.88]]
+        : [[p.f1 * pitchShift, 1.00]];
+
+      tones.forEach(([freq, frac]) => {
+        const g    = p.gain * frac * masterGain * PARTIAL_SCALE;
+        const stop = _addOscillator(freq, g, p.t60, atkSec, t0, bus);
+        maxStop = Math.max(maxStop, stop);
+      });
+    });
+
+    if (noiseAmt > 0.001) {
+      const primef1 = bellDef.partials.find(p => p.label === 'Prime')?.f1 ?? 700;
+      _addNoise(primef1 * pitchShift, noiseAmt, masterGain, t0, bus);
+    }
+
+    setTimeout(() => { try { bus.disconnect(); } catch (_) {} },
+      (maxStop - actx.currentTime + 2) * 1000);
+
+    function stop(ms = 300) {
+      const now      = actx.currentTime;
+      const fadeSecs = Math.max(0.005, ms / 1000);
+      bus.gain.cancelScheduledValues(now);
+      bus.gain.setValueAtTime(bus.gain.value, now);
+      bus.gain.linearRampToValueAtTime(0, now + fadeSecs);
+    }
+
+    return { stop };
+  }
+
+  return { strike, analyser };
+}
+
+function _createMixedEngine(destination, entries) {
+  const blended               = blendBells(entries);
+  const { strike: _s, analyser } = _createEngine(destination);
+  function strike(params = {}) { return _s(blended, params); }
+  return { strike, analyser };
+}
+
+// ── Public Bell API ───────────────────────────────────────────────────────────
+
+// ── Validation helpers ────────────────────────────────────────────────────────
+function _assertBellDef(bellDef, fnName) {
+  if (!bellDef || !Array.isArray(bellDef.partials) || bellDef.partials.length === 0) {
+    throw new TypeError(
+      `${fnName}: bellDef must be an object with a non-empty partials array ` +
+      `(got ${JSON.stringify(bellDef)})`
+    );
+  }
+}
+
+function _assertPitchShift(pitchShift, fnName) {
+  if (typeof pitchShift !== 'number' || pitchShift <= 0) {
+    throw new RangeError(
+      `${fnName}: pitchShift must be a positive number (got ${pitchShift})`
+    );
+  }
+}
+
+function _assertBell(bell, fnName) {
+  if (bell !== null && (typeof bell !== 'object' || typeof bell._strike !== 'function')) {
+    throw new TypeError(
+      `${fnName}: bell must be a Bell object returned by createInternalSyntheticBell ` +
+      `or createExternalBellFromFile, or null (got ${JSON.stringify(bell)})`
+    );
+  }
+}
+
+/**
+ * Blends the spectral character of multiple BellDefs into one new BellDef.
+ *
+ * All frequencies (f1, f2, atkMs) come from the first (reference) entry
+ * unchanged. For each partial label present in the reference bell, gain
+ * and T60 are computed as weighted averages across all entries that carry
+ * that label. Each bell's gains are first normalised relative to its own
+ * Prime so that bells with different absolute levels contribute proportionally.
+ * Partials unique to non-reference bells are silently ignored — they have no
+ * corresponding frequency in the reference.
+ *
+ * @param {Array<{bellDef: BellDef, weight: number}>} entries
+ *   Bells to blend. Must contain at least one entry.
+ *   First entry is the reference (supplies all frequencies).
+ *   weight: 0.0–1.0, the bell's contribution to the spectral blend.
+ * @returns {BellDef} A new BellDef named 'Mixed' with blended gain/T60 values.
+ * @throws {TypeError}  If entries is not a non-empty array, or any entry is malformed.
+ * @throws {RangeError} If any weight is not a finite number.
+ */
+function blendBells(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    throw new TypeError(
+      `blendBells: entries must be a non-empty array (got ${JSON.stringify(entries)})`
+    );
+  }
+  entries.forEach((e, i) => {
+    if (!e || typeof e !== 'object') {
+      throw new TypeError(`blendBells: entries[${i}] must be an object`);
+    }
+    _assertBellDef(e.bellDef, `blendBells entries[${i}].bellDef`);
+    if (typeof e.weight !== 'number' || !isFinite(e.weight)) {
+      throw new RangeError(
+        `blendBells: entries[${i}].weight must be a finite number (got ${e.weight})`
+      );
+    }
+  });
+
+  const reference = entries[0].bellDef;
+
+  const blendedPartials = reference.partials.map(refPartial => {
+    let gainSum = 0, t60Sum = 0, wSum = 0;
+
+    entries.forEach(({ bellDef, weight }) => {
+      const match = bellDef.partials.find(p => p.label === refPartial.label);
+      if (match && match.enabled) {
+        // Normalise each bell's gain relative to its own Prime before averaging,
+        // so bells with different absolute levels contribute proportionally.
+        const ownPrime = bellDef.partials.find(p => p.label === 'Prime');
+        const normGain = ownPrime ? match.gain / ownPrime.gain : match.gain;
+        gainSum += normGain * weight;
+        t60Sum  += match.t60 * weight;
+        wSum    += weight;
+      }
+    });
+
+    if (wSum === 0) return { ...refPartial }; // unique to reference — keep as-is
+
+    // Re-scale blended gain back relative to reference Prime gain
+    const refPrime     = reference.partials.find(p => p.label === 'Prime');
+    const refPrimeGain = refPrime ? refPrime.gain : 1.0;
+
+    return {
+      ...refPartial,
+      gain: (gainSum / wSum) * refPrimeGain,
+      t60:   t60Sum  / wSum,
+      // atkMs kept from reference: attack shape reflects reference bell geometry
+    };
+  });
+
+  return { ...reference, name: 'Mixed', partials: blendedPartials };
+}
+
+/**
+ * Creates a synthetic bell from a BellDef, ready to be struck.
+ *
+ * @example
+ * const inhale = createInternalSyntheticBell(BELLS[0]);
+ * const exhale = createInternalSyntheticBell(BELLS[0], { pitchShift: 0.9 });
+ * const handle = strikeBell(inhale, { stopAtSec: 4, msFade: 300 });
+ * setTimeout(() => handle.stop(300), 2000);
+ *
+ * @param {BellDef} bellDef    - Bell definition from BELLS, or from blendBells().
+ * @param {Object}  [options]
+ * @param {number}  [options.pitchShift=1.0]
+ *   Frequency multiplier (0.5–2.0). Use ~0.85–0.95 for an exhale bell.
+ * @returns {Bell}
+ */
+function createInternalSyntheticBell(bellDef, { pitchShift = 1.0 } = {}) {
+  _assertBellDef(bellDef, 'createInternalSyntheticBell');
+  _assertPitchShift(pitchShift, 'createInternalSyntheticBell');
+  const actx    = _getActx();
+  const engine  = _createEngine(actx.destination, { pitchShift });
+  return {
+    type:     'synthetic',
+    analyser: engine.analyser,
+    _bellDef: bellDef,
+    _strike:  (opts) => engine.strike(bellDef, opts),
+  };
+}
+
+/**
+ * Creates a bell from an audio file, ready to be struck.
+ * The file is fetched and decoded once at creation time.
+ * Only the requested excerpt is kept in memory — the full decoded buffer
+ * is discarded after trimming.
+ *
+ * Supported formats: mp3, wav, ogg/vorbis, aac, flac, opus.
+ * Exact support varies by browser/OS but all of the above work reliably
+ * on iOS Safari, Android Chrome, and desktop browsers.
+ *
+ * Pitch is adjusted via AudioBufferSourceNode.playbackRate, so the timbre
+ * changes naturally with pitch (as on a real instrument).
+ *
+ * @example
+ * // Use a URL
+ * const bowl = await createExternalBellFromFile('sounds/bowl.mp3', { startOffset: 0.5, duration: 6 });
+ *
+ * // Use a pre-fetched Response (e.g. from a service worker or cache)
+ * const res  = await caches.match('sounds/bowl.mp3');
+ * const bowl = await createExternalBellFromFile(res, { startOffset: 0.5, duration: 6 });
+ *
+ * const handle = strikeBell(bowl, { stopAtSec: 4, msFade: 300 });
+ *
+ * @param {string|Response} urlOrResponse
+ *   URL string, or a pre-fetched Response object.
+ *   Accepting a Response allows the caller to handle caching, auth headers,
+ *   or service worker interception before passing the result in.
+ * @param {Object} [options]
+ * @param {number} [options.pitchShift=1.0]
+ *   Playback rate multiplier (0.5–2.0). 1.0 = original pitch.
+ * @param {number} [options.startOffset=0]
+ *   Where in the file to begin the excerpt, in seconds.
+ * @param {number} [options.duration=null]
+ *   How many seconds of audio to keep. null → keep from startOffset to end.
+ *   The trimmed excerpt is copied into a new AudioBuffer; the rest is discarded.
+ * @returns {Promise<Bell>}
+ * @throws {Error} If the fetch fails, the response is not OK, the format is
+ *   unsupported, or the trim parameters fall outside the file duration.
+ */
+async function createExternalBellFromFile(urlOrResponse, {
+  pitchShift  = 1.0,
+  startOffset = 0,
+  duration    = null,
+} = {}) {
+  _assertPitchShift(pitchShift, 'createExternalBellFromFile');
+  if (typeof startOffset !== 'number' || startOffset < 0) {
+    throw new RangeError(
+      `createExternalBellFromFile: startOffset must be a non-negative number (got ${startOffset})`
+    );
+  }
+  if (duration !== null && (typeof duration !== 'number' || duration <= 0)) {
+    throw new RangeError(
+      `createExternalBellFromFile: duration must be a positive number or null (got ${duration})`
+    );
+  }
+  const actx = _getActx();
+
+  // ── Fetch ─────────────────────────────────────────────────────────────────
+  let response;
+  if (urlOrResponse instanceof Response) {
+    response = urlOrResponse;
+  } else {
+    try {
+      response = await fetch(urlOrResponse);
+    } catch (err) {
+      throw new Error(
+        `createExternalBellFromFile: network error fetching "${urlOrResponse}": ${err.message}`
+      );
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `createExternalBellFromFile: fetch failed for "${response.url}" ` +
+      `(HTTP ${response.status} ${response.statusText})`
+    );
+  }
+
+  const arrayBuf = await response.arrayBuffer();
+
+  // ── Decode ────────────────────────────────────────────────────────────────
+  let fullBuf;
+  try {
+    fullBuf = await actx.decodeAudioData(arrayBuf);
+  } catch (err) {
+    const src = urlOrResponse instanceof Response ? response.url : urlOrResponse;
+    throw new Error(
+      `createExternalBellFromFile: could not decode "${src}" — ` +
+      `unsupported or corrupted file. ` +
+      `Supported formats: mp3, wav, ogg/vorbis, aac, flac, opus.`
+    );
+  }
+
+  // ── Validate trim parameters ──────────────────────────────────────────────
+  const fileDuration = fullBuf.duration;
+
+  if (startOffset < 0 || startOffset >= fileDuration) {
+    throw new Error(
+      `createExternalBellFromFile: startOffset ${startOffset}s is out of range ` +
+      `(file duration is ${fileDuration.toFixed(2)}s)`
+    );
+  }
+
+  const maxDuration  = fileDuration - startOffset;
+  const trimDuration = duration === null ? maxDuration : Math.min(duration, maxDuration);
+
+  // ── Trim: copy excerpt into a new AudioBuffer ─────────────────────────────
+  // Only the excerpt is kept in memory; the full decoded buffer is discarded.
+  const sampleRate   = fullBuf.sampleRate;
+  const startSample  = Math.floor(startOffset  * sampleRate);
+  const trimSamples  = Math.ceil (trimDuration * sampleRate);
+  const nChannels    = fullBuf.numberOfChannels;
+
+  const trimBuf = actx.createBuffer(nChannels, trimSamples, sampleRate);
+  for (let ch = 0; ch < nChannels; ch++) {
+    trimBuf.copyToChannel(
+      fullBuf.getChannelData(ch).subarray(startSample, startSample + trimSamples),
+      ch
+    );
+  }
+  // fullBuf goes out of scope here and will be garbage collected.
+
+  // ── Build Bell ────────────────────────────────────────────────────────────
+  const analyser  = actx.createAnalyser();
+  analyser.fftSize = 1024;
+  analyser.connect(actx.destination);
+
+  function _strike({ masterGain = 1.0, stopAtSec = 0, msFade = 300, offsetSec = 0 } = {}) {
+    if (actx.state === 'suspended') actx.resume();
+
+    const t0  = actx.currentTime + 0.005 + offsetSec;
+    const bus = actx.createGain();
+    bus.gain.value = masterGain;
+    bus.connect(analyser);
+
+    if (stopAtSec > 0) {
+      const cutAt    = t0 + stopAtSec;
+      const fadesSec = Math.max(0.005, msFade / 1000);
+      bus.gain.setValueAtTime(masterGain, cutAt - fadesSec);
+      bus.gain.linearRampToValueAtTime(0, cutAt);
+    }
+
+    const src              = actx.createBufferSource();
+    src.buffer             = trimBuf;
+    src.playbackRate.value = pitchShift;
+    src.connect(bus);
+    src.start(t0);
+
+    const naturalEnd = t0 + trimBuf.duration / pitchShift;
+    setTimeout(() => { try { bus.disconnect(); } catch (_) {} },
+      (naturalEnd - actx.currentTime + 1) * 1000);
+
+    function stop(ms = 300) {
+      const now      = actx.currentTime;
+      const fadeSecs = Math.max(0.005, ms / 1000);
+      bus.gain.cancelScheduledValues(now);
+      bus.gain.setValueAtTime(bus.gain.value, now);
+      bus.gain.linearRampToValueAtTime(0, now + fadeSecs);
+      setTimeout(() => { try { src.stop(); bus.disconnect(); } catch (_) {} },
+        (fadeSecs + 0.1) * 1000);
+    }
+
+    return { stop };
+  }
+
+  return { type: 'file', analyser, _strike };
+}
+
+/**
+ * Strikes a bell and returns a handle to stop it early.
+ *
+ * Works identically with synthetic and file-based bells.
+ *
+ * @example
+ * const handle = strikeBell(myBell, { stopAtSec: 7, msFade: 300 });
+ * setTimeout(() => handle.stop(300), 2000);
+ *
+ * @param {Bell}          bell    - Bell created by createInternalSyntheticBell or createExternalBellFromFile.
+ * @param {StrikeOptions} [opts]
+ * @returns {StrikeHandle}
+ */
+function strikeBell(bell, opts = {}) {
+  _assertBell(bell, 'strikeBell');
+  if (bell === null) return { stop: () => {} }; // no-op handle for silent call
+  return bell._strike(opts);
+}
+
+
+// ---------------------------------------------------------------------------
+// SECTION 3 — PATTERNS
+// Named timing patterns kept as reference. createSequencer has been removed
+// as the breathing-exercise PWA drives its own timing loop.
+// ---------------------------------------------------------------------------
+
+/**
+ * Named timing patterns: arrays of millisecond offsets from the first strike.
+ * Kept as reference for future use; not consumed by the current UI.
+ * @type {Object.<string, number[]>}
+ */
+const PATTERNS = {
+  slow:     [0, 3000, 6000, 9000, 12000, 15000],
+  carillon: [0, 130, 260, 390, 520, 780, 910, 1040, 1300, 1560, 1820, 2080],
+};
+
+
+// ---------------------------------------------------------------------------
+// SECTION 4 — BREATHING API
+// ---------------------------------------------------------------------------
+
+/**
+ * Strikes a bell for one inhale or exhale phase of a breathing cycle,
+ * then resolves when the phase is complete.
+ *
+ * Works with both synthetic and file-based bells.
+ *
+ * @example
+ * const inhale = createInternalSyntheticBell(BELLS[0]);
+ * const exhale = createInternalSyntheticBell(BELLS[0], { pitchShift: 0.9 });
+ *
+ * while (running) {
+ *   await strikeBreath(inhale, { stopAtSec: 4, phaseDuration: 4 });  // inhale
+ *   await strikeBreath(null,   { phaseDuration: 4 });                 // hold (silent)
+ *   await strikeBreath(exhale, { stopAtSec: 4, phaseDuration: 4 });  // exhale
+ *   await strikeBreath(null,   { phaseDuration: 4 });                 // hold (silent)
+ * }
+ *
+ * @param {Bell|null} bell
+ *   Bell to strike. Pass null for a silent hold phase.
+ * @param {Object} options
+ * @param {number} [options.masterGain=1.0]
+ *   Overall loudness (0.0–1.5). Defaults to 1.0 — use device volume to
+ *   control loudness. Values above 1.0 may distort on phone speakers.
+ * @param {number} [options.noiseAmt=0.15]
+ *   Strike-noise amplitude (0–0.5). Set to 0 to silence the transient click.
+ * @param {number} [options.stopAtSec=0]
+ *   Scheduled stop time in seconds. Use 0 for a free-ringing bell.
+ * @param {number} options.phaseDuration
+ *   Total length of this breath phase in seconds. The returned Promise
+ *   resolves exactly when phaseDuration has elapsed.
+ * @param {number} [options.msFade=300]
+ *   Fade duration in milliseconds at the stopAtSec cutoff.
+ * @returns {Promise<void>} Resolves when phaseDuration has elapsed.
+ */
+function strikeBreath(bell, {
+  masterGain    = 1.0,
+  noiseAmt      = 0.15,
+  stopAtSec     = 0,
+  phaseDuration,
+  msFade        = 300,
+} = {}) {
+  _assertBell(bell, 'strikeBreath');
+  if (typeof phaseDuration !== 'number' || phaseDuration <= 0) {
+    throw new RangeError(
+      `strikeBreath: phaseDuration must be a positive number (got ${phaseDuration})`
+    );
+  }
+  if (bell) {
+    bell._strike({ masterGain, noiseAmt, stopAtSec, msFade });
+  }
+  return new Promise(resolve => setTimeout(resolve, phaseDuration * 1000));
+}
+
+// export { createInternalSyntheticBell, createExternalBellFromFile, strikeBell, strikeBreath, blendBells, BELLS };
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SCRIPT TAG 2 — UI only  (Section 4)
+     Reads BELLS, SOURCES, PATTERNS, blendBells,
+     createInternalSyntheticBell, createExternalBellFromFile,
+     strikeBell, strikeBreath from Script Tag 1.
+     When Tag 1 becomes an ESM module, replace those globals with:
+     import { createInternalSyntheticBell, createExternalBellFromFile,
+              strikeBell, strikeBreath, blendBells, BELLS } from './bell-engine.js';
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script type="module">
+// =============================================================================
+// SECTION 4 — UI
+// All DOM wiring. Calls into Data, Audio Engine, and Sequencer only via their
+// public APIs. This is the section that stays in the HTML file when the rest
+// moves to an ESM module.
+// =============================================================================
+
+let currentBell = 0;       // index into BELLS, or 'mix'
+let _bell       = null;    // current Bell object
+let _bellKey    = null;    // string key to detect when bell needs rebuilding
+
+function _mixKey() {
+  const w0 = document.getElementById('mix0').value;
+  const w1 = document.getElementById('mix1').value;
+  return `mix:${w0}:${w1}`;
+}
+
+function _pitchKey() {
+  return `single:${currentBell}:${document.getElementById('pitchShift').value}`;
+}
+
+function getBell() {
+  if (currentBell === 'mix') {
+    const key = _mixKey();
+    if (_bell && _bellKey === key) return _bell;
+    const entries = BELLS.map((bellDef, i) => ({
+      bellDef,
+      weight: +document.getElementById(`mix${i}`).value,
+    }));
+    const blended  = blendBells(entries);
+    const actx     = _getActx();
+    const engine   = _createMixedEngine(actx.destination, entries);
+    _bell    = { type: 'synthetic', analyser: engine.analyser, _strike: (opts) => engine.strike(opts) };
+    _bellKey = key;
+  } else {
+    const key = _pitchKey();
+    if (_bell && _bellKey === key) return _bell;
+    const pitch = +document.getElementById('pitchShift').value;
+    _bell    = createInternalSyntheticBell(BELLS[currentBell], { pitchShift: pitch });
+    _bellKey = key;
+  }
+  startViz(_bell.analyser);
+  return _bell;
+}
+
+// ── Strike helper ─────────────────────────────────────────────────────────────
+function getGlobalParams() {
+  return {
+    masterGain: +document.getElementById('masterGain').value,
+    noiseAmt:   +document.getElementById('noiseAmt').value,
+    stopAtSec:  +document.getElementById('duration').value,
+    msFade:     +document.getElementById('msFade').value,
+  };
+}
+
+function doStrike() {
+  const params  = getGlobalParams();
+  _strikeHandle = strikeBell(getBell(), params);
+  triggerVisual();
+  if (_playState !== 'playing') {
+    _playState = 'playing';
+    setTimeout(() => {
+      if (!_sqRunning && _playState === 'playing') { _playState = 'stopped'; _setButtonStates('stopped'); }
+    }, params.stopAtSec * 1000 + 500);
+    _setButtonStates('playing');
+  }
+}
+
+// ── Play / Pause / Stop with progress bar ────────────────────────────────────
+let _playState    = 'stopped';  // 'stopped' | 'playing' | 'paused'
+let _playStart    = null;       // performance.now() when play began
+let _pausedAt     = 0;          // elapsed ms when paused
+let _progressRaf  = null;       // requestAnimationFrame handle
+let _strikeTimer  = null;       // setTimeout handle for the scheduled strike
+let _strikeHandle = null;       // StrikeHandle from the most recent strike()
+
+function _getDurationMs() {
+  return +document.getElementById('duration').value * 1000;
+}
+
+function _setProgress(fraction) {
+  document.getElementById('progressFill').style.width = (fraction * 100).toFixed(2) + '%';
+}
+
+function _setButtonStates(state) {
+  document.getElementById('btnPlay') .classList.toggle('active', state === 'playing');
+  document.getElementById('btnPause').classList.toggle('active', state === 'paused');
+}
+
+function _tickProgress() {
+  if (_playState !== 'playing') return;
+  const elapsed  = performance.now() - _playStart + _pausedAt;
+  const duration = _getDurationMs();
+  const fraction = Math.min(elapsed / duration, 1);
+  _setProgress(fraction);
+  if (fraction < 1) {
+    _progressRaf = requestAnimationFrame(_tickProgress);
+  } else {
+    _playState = 'stopped';
+    _pausedAt  = 0;
+    _setProgress(1);
+    _setButtonStates('stopped');
+  }
+}
+
+function playBell() {
+  if (_playState === 'playing') return;
+  if (_playState === 'paused') {
+    // Resume: re-strike from the beginning (audio can't be unpaused)
+    // and continue the progress bar from where it left off
+    _playState = 'playing';
+    _playStart = performance.now();
+    doStrike();
+    _progressRaf = requestAnimationFrame(_tickProgress);
+    _setButtonStates('playing');
+    return;
+  }
+  // Fresh start
+  stopBell();
+  _playState = 'playing';
+  _playStart = performance.now();
+  _pausedAt  = 0;
+  doStrike();
+  _progressRaf = requestAnimationFrame(_tickProgress);
+  _setButtonStates('playing');
+}
+
+function pauseBell() {
+  if (_playState !== 'playing') return;
+  _playState = 'paused';
+  _pausedAt += performance.now() - _playStart;
+  cancelAnimationFrame(_progressRaf);
+  clearTimeout(_strikeTimer);
+  _strikeHandle?.stop(+document.getElementById('msFade').value);
+  _setButtonStates('paused');
+}
+
+function stopBell() {
+  _playState = 'stopped';
+  _pausedAt  = 0;
+  cancelAnimationFrame(_progressRaf);
+  clearTimeout(_strikeTimer);
+  _strikeHandle?.stop(+document.getElementById('msFade').value);
+  _strikeHandle = null;
+  _setProgress(0);
+  _setButtonStates('stopped');
+}
+
+// ── Bell selector ────────────────────────────────────────────────────────────
+function loadBell(idx) {
+  currentBell = idx;
+  _bell = null; _bellKey = null;  // force bell rebuild on next strike
+  document.querySelectorAll('.bell-tab')
+    .forEach(t => t.classList.toggle('active', t.dataset.bell === String(idx)));
+  const isMix = idx === 'mix';
+  document.getElementById('partialsPanel').style.display = isMix ? 'none' : '';
+  document.getElementById('mixPanel').style.display      = isMix ? ''     : 'none';
+  if (!isMix) renderPartials();
+}
+
+// ── Partials editor ──────────────────────────────────────────────────────────
+function renderPartials() {
+  const bell      = BELLS[currentBell];
+  const container = document.getElementById('partialRows');
+  container.innerHTML = '';
+  const COLORS = ['#c9a96e', '#7eb8c9', '#9b7ec9', '#6eb89b', '#c96e7e'];
+
+  bell.partials.forEach((p, i) => {
+    const col     = COLORS[i % COLORS.length];
+    const freqStr = p.f2
+      ? `${p.f1.toFixed(2)} + ${p.f2.toFixed(2)} Hz  Δ${Math.abs(p.f1 - p.f2).toFixed(2)} Hz`
+      : `${p.f1.toFixed(2)} Hz`;
+    const t60Str  = p.t60 < 1 ? `${(p.t60 * 1000).toFixed(0)}ms` : `${p.t60}s`;
+
+    const row = document.createElement('div');
+    row.className = 'partial-row' + (p.enabled ? '' : ' inactive');
+    row.id = `pr${i}`;
+    row.innerHTML = `
+      <div>
+        <div class="pr-label">${p.label}</div>
+        <div class="pr-freq">${freqStr}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div class="pr-bar" id="gainBar${i}" title="Gain">
+          <div class="pr-fill" id="gainFill${i}" style="background:${col};width:${Math.min(p.gain / 2 * 100, 100)}%"></div>
+        </div>
+        <div class="pr-bar" id="t60Bar${i}" title="T60">
+          <div class="pr-fill" id="t60Fill${i}" style="background:${col}55;width:${Math.min(p.t60 / 200 * 100, 100)}%"></div>
+        </div>
+      </div>
+      <div class="pr-val" id="gainVal${i}">${p.gain.toFixed(2)}</div>
+      <div class="pr-t60" id="t60Val${i}">T60 ${t60Str}</div>
+      <button class="pr-toggle ${p.enabled ? 'on' : ''}" id="tog${i}"
+              title="Enable/disable">✓</button>
+    `;
+    container.appendChild(row);
+
+    document.getElementById(`tog${i}`).addEventListener('click', () => togglePartial(i));
+    makeBarDraggable(document.getElementById(`gainBar${i}`), 0, 2,
+      v => { bell.partials[i].gain = v; _refreshPartialRow(i); });
+    makeBarDraggable(document.getElementById(`t60Bar${i}`), 0.05, 200,
+      v => { bell.partials[i].t60  = v; _refreshPartialRow(i); });
+  });
+}
+
+function _refreshPartialRow(i) {
+  const p      = BELLS[currentBell].partials[i];
+  const t60Str = p.t60 < 1 ? `${(p.t60 * 1000).toFixed(0)}ms` : `${p.t60.toFixed(0)}s`;
+  document.getElementById(`gainFill${i}`).style.width = Math.min(p.gain / 2 * 100, 100) + '%';
+  document.getElementById(`t60Fill${i}`).style.width  = Math.min(p.t60 / 200 * 100, 100) + '%';
+  document.getElementById(`gainVal${i}`).textContent  = p.gain.toFixed(2);
+  document.getElementById(`t60Val${i}`).textContent   = 'T60 ' + t60Str;
+}
+
+function togglePartial(i) {
+  const p = BELLS[currentBell].partials[i];
+  p.enabled = !p.enabled;
+  document.getElementById(`pr${i}`).className  = 'partial-row' + (p.enabled ? '' : ' inactive');
+  document.getElementById(`tog${i}`).className = 'pr-toggle'   + (p.enabled ? ' on' : '');
+}
+
+function makeBarDraggable(el, min, max, onChange) {
+  function update(e) {
+    const rect = el.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    onChange(min + x * (max - min));
+  }
+  el.addEventListener('mousedown', e => {
+    update(e);
+    const onMove = e2 => update(e2);
+    const onUp   = ()  => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+  el.addEventListener('touchstart', e => { e.preventDefault(); update(e); }, { passive: false });
+  el.addEventListener('touchmove',  e => { e.preventDefault(); update(e); }, { passive: false });
+}
+
+// ── Global control labels ────────────────────────────────────────────────────
+document.getElementById('masterGain').addEventListener('input', function () {
+  document.getElementById('mgV').textContent = parseFloat(this.value).toFixed(2);
+});
+document.getElementById('noiseAmt').addEventListener('input', function () {
+  document.getElementById('nV').textContent = parseFloat(this.value).toFixed(2);
+});
+document.getElementById('pitchShift').addEventListener('input', function () {
+  document.getElementById('psV').textContent = parseFloat(this.value).toFixed(2) + '×';
+});
+document.getElementById('msFade').addEventListener('input', function () {
+  document.getElementById('msFadeV').textContent = this.value;
+});
+document.getElementById('mix0').addEventListener('input', function () {
+  document.getElementById('mix0V').textContent = parseFloat(this.value).toFixed(2);
+});
+document.getElementById('mix1').addEventListener('input', function () {
+  document.getElementById('mix1V').textContent = parseFloat(this.value).toFixed(2);
+});
+
+// ── Waveform visualiser ──────────────────────────────────────────────────────
+function startViz(analyser) {
+  const canvas = document.getElementById('viz');
+  const ctx    = canvas.getContext('2d');
+  const dpr    = window.devicePixelRatio || 1;
+  canvas.width  = canvas.offsetWidth  * dpr;
+  canvas.height = canvas.offsetHeight * dpr;
+  const W = canvas.width, H = canvas.height;
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+
+  (function draw() {
+    requestAnimationFrame(draw);
+    ctx.clearRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(201,169,110,.7)';
+    ctx.lineWidth   = 1.5;
+    ctx.shadowColor = 'rgba(201,169,110,.25)';
+    ctx.shadowBlur  = 4;
+    ctx.beginPath();
+
+    if (_playState === 'playing') {
+      // Live waveform
+      analyser.getByteTimeDomainData(buf);
+      buf.forEach((v, i) => {
+        const x = i * W / buf.length;
+        const y = v / 255 * H;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      });
+    } else {
+      // Flat centre line when paused or stopped
+      ctx.moveTo(0,   H / 2);
+      ctx.lineTo(W,   H / 2);
+    }
+
+    ctx.stroke();
+  })();
+}
+
+// ── Strike visual feedback ───────────────────────────────────────────────────
+function triggerVisual() {
+  // Visual feedback is now handled by the square breathing diagram
+  // and the waveform visualiser. Nothing extra needed here.
+}
+
+// ── Square breathing ─────────────────────────────────────────────────────────
+//
+// 4 phases × 4 s each = 16 s cycle, repeating until stopped.
+// Phase 0: Inhale  — bell at natural pitch
+// Phase 1: Hold    — no bell
+// Phase 2: Exhale  — bell at pitchShift × 0.9 (slightly lower)
+// Phase 3: Hold    — no bell
+//
+// The bell stopAtSec is taken from the Play panel slider, independent
+// of the 4 s phase length.
+
+const SQ_PHASE_MS  = 4000;
+const SQ_EXHALE_PS = 0.9;   // pitch multiplier relative to current pitchShift
+
+const SQ_PHASES = [
+  { label: 'Inhale', bell: true,  exhale: false },
+  { label: 'Hold',   bell: false, exhale: false },
+  { label: 'Exhale', bell: true,  exhale: true  },
+  { label: 'Hold',   bell: false, exhale: false },
+];
+
+let _sqRunning    = false;
+let _sqPhase      = 0;
+let _sqPhaseStart = null;
+let _sqRaf        = null;
+let _sqExhaleEngine  = null;    // private _createEngine instance for exhale
+let _sqStrikeHandle  = null;    // StrikeHandle from the most recent sq strike
+
+function _getSqExhaleEngine() {
+  const pitch = +document.getElementById('pitchShift').value * SQ_EXHALE_PS;
+  if (!_sqExhaleEngine || _sqExhaleEngine._pitch !== pitch) {
+    _sqExhaleEngine = _createEngine(_getActx().destination, { pitchShift: pitch });
+    _sqExhaleEngine._pitch = pitch;
+  }
+  return _sqExhaleEngine;
+}
+
+function _sqStrikePhase(phaseIdx) {
+  const phase = SQ_PHASES[phaseIdx];
+  if (!phase.bell) return;
+  const params = getGlobalParams();
+  params.stopAtSec = SQ_PHASE_MS / 1000;
+  if (phase.exhale) {
+    const exhaleEngine = _getSqExhaleEngine();
+    const bellDef = currentBell === 'mix'
+      ? blendBells(BELLS.map((b, i) => ({ bellDef: b, weight: +document.getElementById(`mix${i}`).value })))
+      : BELLS[currentBell];
+    _sqStrikeHandle = exhaleEngine.strike(bellDef, params);
+  } else {
+    _sqStrikeHandle = strikeBell(getBell(), params);
+  }
+  _playState = 'playing';
+}
+
+function _sqTick() {
+  if (!_sqRunning) return;
+  const now     = performance.now();
+  const elapsed = now - _sqPhaseStart;
+  const frac    = Math.min(elapsed / SQ_PHASE_MS, 1);
+
+  document.getElementById(`sqf${_sqPhase}`).style.width = (frac * 100).toFixed(2) + '%';
+
+  if (frac >= 1) {
+    document.getElementById(`sqf${_sqPhase}`).style.width = '0%';
+    document.getElementById(`sqp${_sqPhase}`).classList.remove('active');
+    _sqPhase = (_sqPhase + 1) % 4;
+    _sqPhaseStart = now;
+    document.getElementById(`sqp${_sqPhase}`).classList.add('active');
+    _sqStrikePhase(_sqPhase);
+  }
+
+  _sqRaf = requestAnimationFrame(_sqTick);
+}
+
+function sqStart() {
+  if (_sqRunning) return;
+  _sqRunning    = true;
+  _sqPhase      = 0;
+  _sqPhaseStart = performance.now();
+  document.getElementById('sqbStart').classList.add('active');
+  for (let i = 0; i < 4; i++) {
+    document.getElementById(`sqf${i}`).style.width = '0%';
+    document.getElementById(`sqp${i}`).classList.remove('active');
+  }
+  document.getElementById('sqp0').classList.add('active');
+  _sqStrikePhase(0);
+  _sqRaf = requestAnimationFrame(_sqTick);
+  _startKeepalive();
+  _acquireWakeLock();
+}
+
+function sqStop() {
+  _sqRunning = false;
+  cancelAnimationFrame(_sqRaf);
+  _sqStrikeHandle?.stop(+document.getElementById('msFade').value);
+  _sqStrikeHandle = null;
+  document.getElementById('sqbStart').classList.remove('active');
+  for (let i = 0; i < 4; i++) {
+    document.getElementById(`sqf${i}`).style.width = '0%';
+    document.getElementById(`sqp${i}`).classList.remove('active');
+  }
+  _playState = 'stopped';
+  _releaseWakeLock();
+}
+
+// ── Event bindings ───────────────────────────────────────────────────────────
+
+// Bell selector tabs
+document.getElementById('bellTabs').addEventListener('click', e => {
+  const btn = e.target.closest('[data-bell]');
+  if (!btn) return;
+  const val = btn.dataset.bell;
+  loadBell(val === 'mix' ? 'mix' : +val);
+});
+
+// Play controls
+document.getElementById('btnPlay') .addEventListener('click', playBell);
+document.getElementById('btnPause').addEventListener('click', pauseBell);
+document.getElementById('btnStop') .addEventListener('click', stopBell);
+
+// Square breathing controls
+document.getElementById('sqbStart').addEventListener('click', sqStart);
+document.getElementById('sqbStop') .addEventListener('click', sqStop);
+
+// Duration slider label
+document.getElementById('duration').addEventListener('input', function () {
+  document.getElementById('durV').textContent = this.value;
+});
+
+// Keyboard — single strike
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && e.target === document.body) {
+    e.preventDefault();
+    doStrike();
+  }
+});
+
+// ── Wake Lock ────────────────────────────────────────────────────────────────
+// Keeps the screen on while square breathing is running.
+// Requires HTTPS and a PWA (home screen install on iOS).
+// Silently does nothing in plain browser tabs or unsupported browsers.
+
+let _wakeLock = null;
+
+async function _acquireWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    _wakeLock = await navigator.wakeLock.request('screen');
+  } catch (_) {
+    // Permission denied or not supported — continue without it
+  }
+}
+
+function _releaseWakeLock() {
+  if (_wakeLock) { _wakeLock.release(); _wakeLock = null; }
+}
+
+// Re-acquire after the user returns to the app (e.g. from lock screen)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && _sqRunning) _acquireWakeLock();
+});
+
+// ── Silent audio keepalive ───────────────────────────────────────────────────
+// iOS suspends the AudioContext when the screen locks, even in a PWA.
+// A looping zero-filled buffer keeps the context alive so the square
+// breathing audio continues uninterrupted.
+// Must be started from a user gesture — started on the first sqStart().
+
+let _keepaliveStarted = false;
+
+function _startKeepalive() {
+  if (_keepaliveStarted) return;
+  _keepaliveStarted = true;
+  const actx = _getActx();
+  const buf  = actx.createBuffer(1, actx.sampleRate, actx.sampleRate); // 1 s silence
+  // Buffer is zero-filled by default — no sound produced
+  function loop() {
+    const src = actx.createBufferSource();
+    src.buffer = buf;
+    src.connect(actx.destination);
+    src.onended = loop;  // reschedule immediately on end
+    src.start();
+  }
+  loop();
+}
+
+// ── Initialise ───────────────────────────────────────────────────────────────
+renderPartials();
+</script>
+</body>
+</html>

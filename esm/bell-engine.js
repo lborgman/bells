@@ -337,6 +337,105 @@ function _createMixedEngine(destination, entries) {
 
 // ── Public Bell API ───────────────────────────────────────────────────────────
 
+// ── Validation helpers ────────────────────────────────────────────────────────
+function _assertBellDef(bellDef, fnName) {
+  if (!bellDef || !Array.isArray(bellDef.partials) || bellDef.partials.length === 0) {
+    throw new TypeError(
+      `${fnName}: bellDef must be an object with a non-empty partials array ` +
+      `(got ${JSON.stringify(bellDef)})`
+    );
+  }
+}
+
+function _assertPitchShift(pitchShift, fnName) {
+  if (typeof pitchShift !== 'number' || pitchShift <= 0) {
+    throw new RangeError(
+      `${fnName}: pitchShift must be a positive number (got ${pitchShift})`
+    );
+  }
+}
+
+function _assertBell(bell, fnName) {
+  if (bell !== null && (typeof bell !== 'object' || typeof bell._strike !== 'function')) {
+    throw new TypeError(
+      `${fnName}: bell must be a Bell object returned by createInternalSyntheticBell ` +
+      `or createExternalBellFromFile, or null (got ${JSON.stringify(bell)})`
+    );
+  }
+}
+
+/**
+ * Blends the spectral character of multiple BellDefs into one new BellDef.
+ *
+ * All frequencies (f1, f2, atkMs) come from the first (reference) entry
+ * unchanged. For each partial label present in the reference bell, gain
+ * and T60 are computed as weighted averages across all entries that carry
+ * that label. Each bell's gains are first normalised relative to its own
+ * Prime so that bells with different absolute levels contribute proportionally.
+ * Partials unique to non-reference bells are silently ignored — they have no
+ * corresponding frequency in the reference.
+ *
+ * @param {Array<{bellDef: BellDef, weight: number}>} entries
+ *   Bells to blend. Must contain at least one entry.
+ *   First entry is the reference (supplies all frequencies).
+ *   weight: 0.0–1.0, the bell's contribution to the spectral blend.
+ * @returns {BellDef} A new BellDef named 'Mixed' with blended gain/T60 values.
+ * @throws {TypeError}  If entries is not a non-empty array, or any entry is malformed.
+ * @throws {RangeError} If any weight is not a finite number.
+ */
+function blendBells(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    throw new TypeError(
+      `blendBells: entries must be a non-empty array (got ${JSON.stringify(entries)})`
+    );
+  }
+  entries.forEach((e, i) => {
+    if (!e || typeof e !== 'object') {
+      throw new TypeError(`blendBells: entries[${i}] must be an object`);
+    }
+    _assertBellDef(e.bellDef, `blendBells entries[${i}].bellDef`);
+    if (typeof e.weight !== 'number' || !isFinite(e.weight)) {
+      throw new RangeError(
+        `blendBells: entries[${i}].weight must be a finite number (got ${e.weight})`
+      );
+    }
+  });
+
+  const reference = entries[0].bellDef;
+
+  const blendedPartials = reference.partials.map(refPartial => {
+    let gainSum = 0, t60Sum = 0, wSum = 0;
+
+    entries.forEach(({ bellDef, weight }) => {
+      const match = bellDef.partials.find(p => p.label === refPartial.label);
+      if (match && match.enabled) {
+        // Normalise each bell's gain relative to its own Prime before averaging,
+        // so bells with different absolute levels contribute proportionally.
+        const ownPrime = bellDef.partials.find(p => p.label === 'Prime');
+        const normGain = ownPrime ? match.gain / ownPrime.gain : match.gain;
+        gainSum += normGain * weight;
+        t60Sum  += match.t60 * weight;
+        wSum    += weight;
+      }
+    });
+
+    if (wSum === 0) return { ...refPartial }; // unique to reference — keep as-is
+
+    // Re-scale blended gain back relative to reference Prime gain
+    const refPrime     = reference.partials.find(p => p.label === 'Prime');
+    const refPrimeGain = refPrime ? refPrime.gain : 1.0;
+
+    return {
+      ...refPartial,
+      gain: (gainSum / wSum) * refPrimeGain,
+      t60:   t60Sum  / wSum,
+      // atkMs kept from reference: attack shape reflects reference bell geometry
+    };
+  });
+
+  return { ...reference, name: 'Mixed', partials: blendedPartials };
+}
+
 /**
  * Creates a synthetic bell from a BellDef, ready to be struck.
  *
@@ -353,6 +452,8 @@ function _createMixedEngine(destination, entries) {
  * @returns {Bell}
  */
 function createInternalSyntheticBell(bellDef, { pitchShift = 1.0 } = {}) {
+  _assertBellDef(bellDef, 'createInternalSyntheticBell');
+  _assertPitchShift(pitchShift, 'createInternalSyntheticBell');
   const actx    = _getActx();
   const engine  = _createEngine(actx.destination, { pitchShift });
   return {
@@ -407,6 +508,17 @@ async function createExternalBellFromFile(urlOrResponse, {
   startOffset = 0,
   duration    = null,
 } = {}) {
+  _assertPitchShift(pitchShift, 'createExternalBellFromFile');
+  if (typeof startOffset !== 'number' || startOffset < 0) {
+    throw new RangeError(
+      `createExternalBellFromFile: startOffset must be a non-negative number (got ${startOffset})`
+    );
+  }
+  if (duration !== null && (typeof duration !== 'number' || duration <= 0)) {
+    throw new RangeError(
+      `createExternalBellFromFile: duration must be a positive number or null (got ${duration})`
+    );
+  }
   const actx = _getActx();
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
@@ -456,15 +568,7 @@ async function createExternalBellFromFile(urlOrResponse, {
   }
 
   const maxDuration  = fileDuration - startOffset;
-  const trimDuration = duration === null
-    ? maxDuration
-    : Math.min(duration, maxDuration);
-
-  if (duration !== null && duration <= 0) {
-    throw new Error(
-      `createExternalBellFromFile: duration must be > 0 (got ${duration})`
-    );
-  }
+  const trimDuration = duration === null ? maxDuration : Math.min(duration, maxDuration);
 
   // ── Trim: copy excerpt into a new AudioBuffer ─────────────────────────────
   // Only the excerpt is kept in memory; the full decoded buffer is discarded.
@@ -542,6 +646,8 @@ async function createExternalBellFromFile(urlOrResponse, {
  * @returns {StrikeHandle}
  */
 function strikeBell(bell, opts = {}) {
+  _assertBell(bell, 'strikeBell');
+  if (bell === null) return { stop: () => {} }; // no-op handle for silent call
   return bell._strike(opts);
 }
 
@@ -608,6 +714,12 @@ function strikeBreath(bell, {
   phaseDuration,
   msFade        = 300,
 } = {}) {
+  _assertBell(bell, 'strikeBreath');
+  if (typeof phaseDuration !== 'number' || phaseDuration <= 0) {
+    throw new RangeError(
+      `strikeBreath: phaseDuration must be a positive number (got ${phaseDuration})`
+    );
+  }
   if (bell) {
     bell._strike({ masterGain, noiseAmt, stopAtSec, msFade });
   }
