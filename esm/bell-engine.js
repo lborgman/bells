@@ -5,18 +5,17 @@
  *   - Inhale cue: strike a bell at its natural pitch.
  *   - Exhale cue: strike the same bell via an engine with pitchShift < 1
  *                 (slightly lower pitch signals the transition to exhale).
- *   - Sound duration is controlled per-strike via durationSec (2–8 s).
+ *   - Sound duration is controlled per-strike via stopAtSec (2–8 s).
  *     Without it the bell rings freely to its natural T60 (tens of seconds).
  *   - stopAtSec provides a hard cut (with 300 ms ramp) at a precise time,
  *     used by the square breathing cycle to silence sound at phase boundaries.
  *
  * Breathing-exercise usage example:
  * @example
- * const actx        = new AudioContext();
- * const inhale      = createEngine(actx.destination);
- * const exhale      = createEngine(actx.destination, { pitchShift: 0.92 });
- * inhale.strike(BELLS[0], { durationSec: 4 });  // bell in  → 4 s inhale
- * exhale.strike(BELLS[0], { durationSec: 6 });  // bell out → 6 s exhale
+ * const inhale = createInternalSyntheticBell(BELLS[0]);
+ * const exhale = createInternalSyntheticBell(BELLS[0], { pitchShift: 0.92 });
+ * strikeBell(inhale, { stopAtSec: 4 });  // bell in  → 4 s inhale
+ * strikeBell(exhale, { stopAtSec: 6 });  // bell out → 6 s exhale
  */
 
 
@@ -76,7 +75,7 @@ const SOURCES = {
  *   Nominal  2.00×  — strong octave, warm sustain, core of the "singing" tone
  *   Quint    2.75×  — softer fifth above octave, adds gentle brightness
  *
- * All T60 values are long enough to ring freely but controlled via durationSec
+ * All T60 values are long enough to ring freely but controlled via stopAtSec
  * in the breathing-exercise PWA. No harsh high partials (no Superquint or
  * Oct·Nominal). Doublet beats are slow (0.8–1.2 Hz) — calming rather than agitating.
  *
@@ -87,7 +86,7 @@ const BELLS = [
   {
     // Bowl 1 — warmer, more fundamental weight
     // Reference pitch 432 Hz (common for meditation contexts).
-    // Adjust via pitchShift on createEngine() as needed.
+    // Adjust via pitchShift on createInternalSyntheticBell() as needed.
     name: 'Bowl 1 · 432 Hz',
     source: SOURCES['Bowl 1'],
     partials: [
@@ -142,14 +141,11 @@ const PARTIAL_SCALE = 1 / 3;
  * @param {number}   gain    - Peak amplitude (linear).
  * @param {number}   t60     - Natural decay time in seconds.
  * @param {number}   atkSec  - Attack ramp in seconds (0 = instant).
- * @param {number}   fadeSec - If > 0, overrides natural decay with a short
- *                             fade-out starting at t0 + fadeSec. Used to
- *                             enforce durationSec on each partial.
  * @param {number}   t0      - AudioContext time to begin playback.
  * @param {GainNode} busNode - Destination node in the audio graph.
  * @returns {number} AudioContext time when the oscillator node stops.
  */
-function _addOscillator(freq, gain, t60, atkSec, fadeSec, t0, busNode) {
+function _addOscillator(freq, gain, t60, atkSec, t0, busNode) {
   const actx   = busNode.context;
   const tau    = t60 / LN1000;
   const stopAt = t0 + Math.min(t60 * 2.0, 90);
@@ -167,20 +163,11 @@ function _addOscillator(freq, gain, t60, atkSec, fadeSec, t0, busNode) {
   }
   env.gain.setTargetAtTime(0.0001, t0 + Math.max(atkSec, 0.001), tau);
 
-  if (fadeSec > 0) {
-    // Controlled fade-out: cancel the natural decay at durationSec and replace
-    // it with a short exponential fade (≤ 500 ms, 10% of durationSec).
-    const fadeStart = t0 + fadeSec;
-    const fadeDur   = Math.min(0.5, fadeSec * 0.1);
-    env.gain.cancelScheduledValues(fadeStart);
-    env.gain.setTargetAtTime(0.0001, fadeStart, fadeDur / 3);
-  }
-
   osc.connect(env);
   env.connect(busNode);
   osc.start(t0);
-  osc.stop(fadeSec > 0 ? t0 + fadeSec + 2 : stopAt);
-  return      fadeSec > 0 ? t0 + fadeSec + 2 : stopAt;
+  osc.stop(stopAt);
+  return stopAt;
 }
 
 /**
@@ -215,7 +202,7 @@ function _addNoise(primef1, noiseAmt, masterGain, t0, busNode) {
 }
 
 /**
- * Options passed to engine.strike().
+ * Options passed to strikeBell().
  *
  * @typedef {Object} StrikeOptions
  * @property {number} [masterGain=1.0]
@@ -225,56 +212,51 @@ function _addNoise(primef1, noiseAmt, masterGain, t0, busNode) {
  * @property {number} [offsetSec=0]
  *   Delay before the sound starts, in seconds. Useful for pre-scheduling
  *   a sequence of strikes relative to a shared reference time.
- * @property {number} [durationSec=0]
- *   Controlled fade-out time in seconds after the strike.
- *   0     → bell rings freely to its natural T60 (tens of seconds).
- *   2–8   → recommended range for breathing-exercise inhale/exhale cues.
- *   The bell sounds naturally from the strike onset, then fades smoothly
- *   over ≤ 500 ms beginning at durationSec.
  * @property {number} [stopAtSec=0]
- *   Hard cut time in seconds after the strike. If > 0, all oscillators are
- *   silenced instantly at exactly t0 + stopAtSec with no fade whatsoever.
- *   Used by square breathing to cut sound precisely when the Hold phase begins.
- *   Takes precedence over durationSec if both are set.
+ *   Scheduled stop time in seconds after the strike. The bus gain is ramped
+ *   to zero over msFade ms, ending at t0 + stopAtSec.
+ *   0 → bell rings freely to its natural T60.
+ *   For an interactive stop at any time, use the StrikeHandle returned by strikeBell().
  * @property {number} [msFade=300]
- *   Duration of the fade-out ramp in milliseconds applied at stopAtSec.
- *   300 ms is clearly audible but not abrupt. Ignored when stopAtSec is 0.
+ *   Fade duration in milliseconds used by both stopAtSec and handle.stop().
+ *   300 ms is clearly audible but not abrupt.
  */
 
 /**
- * A running synthesis engine returned by createEngine or createMixedEngine.
+ * A bell ready to be struck, returned by createInternalSyntheticBell()
+ * or createExternalBellFromFile(). Pass to strikeBell() or strikeBreath().
  *
- * @typedef {Object} Engine
- * @property {function(BellDef, StrikeOptions=): void} strike
- *   Synthesises and schedules one bell strike.
- *   Safe to call while a previous strike is still ringing —
- *   strikes accumulate naturally, as on a real bell.
- * @property {AnalyserNode} analyser
- *   Web Audio AnalyserNode on the engine output.
- *   Connect to a waveform or spectrum visualiser.
+ * @typedef {Object} Bell
+ * @property {'synthetic'|'file'} type  - How the bell was created.
+ * @property {AnalyserNode}   analyser  - Web Audio AnalyserNode on the bell output.
+ *                                        Connect to a waveform or spectrum visualiser.
+ * @property {function(StrikeOptions=): StrikeHandle} _strike
+ *   Internal strike function. Use strikeBell() rather than calling this directly.
  */
 
 /**
- * Creates a bell synthesis engine connected to a given audio destination.
+ * Handle returned by strikeBell(), allowing the caller to stop a strike
+ * before it has finished ringing naturally.
  *
- * Each call produces an independent engine with its own internal audio
- * sub-graph. Multiple engines can share the same AudioContext.
- *
- * @param {AudioNode} destination - Web Audio node to connect output to.
- * @param {Object}    [options]
- * @param {number}    [options.pitchShift=1.0]
- *   Frequency multiplier applied uniformly to every partial and to the
- *   strike-noise bandpass centre. Supported range: 0.5–2.0.
- *   The doublet beat frequencies scale proportionally (physically correct).
- *   Breathing-exercise usage: use ~0.85–0.95 for the exhale engine so the
- *   lower pitch cues the transition from inhale to exhale.
- * @param {boolean}   [options.suppressDoublets=false]
- *   When true, only f1 is synthesised for each partial (f2 is ignored).
- *   Set automatically by createMixedEngine() for pitch-shifted constituent
- *   bells, preventing artefact beating between unrelated doublet asymmetries.
- * @returns {Engine}
+ * @typedef {Object} StrikeHandle
+ * @property {function(number=): void} stop
+ *   Fades out and silences this strike.
+ *   @param {number} [msFade=300] - Fade duration in milliseconds.
  */
-function createEngine(destination, { pitchShift = 1.0, suppressDoublets = false } = {}) {
+
+// ── Shared lazy AudioContext ──────────────────────────────────────────────────
+// Created on first call to createInternalSyntheticBell or createExternalBellFromFile.
+// Must be triggered by a user gesture to satisfy browser autoplay policy.
+function _getActx() {
+  if (!_getActx._actx) {
+    _getActx._actx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  return _getActx._actx;
+}
+
+// ── Private engine ────────────────────────────────────────────────────────────
+
+function _createEngine(destination, { pitchShift = 1.0, suppressDoublets = false } = {}) {
   const actx     = destination.context;
   const analyser = actx.createAnalyser();
   analyser.fftSize = 1024;
@@ -286,23 +268,21 @@ function createEngine(destination, { pitchShift = 1.0, suppressDoublets = false 
     masterGain  = 1.0,
     noiseAmt    = 0.15,
     offsetSec   = 0,
-    durationSec = 0,
     stopAtSec   = 0,
     msFade      = 300,
   } = {}) {
     if (actx.state === 'suspended') actx.resume();
 
-    const t0      = actx.currentTime + 0.005 + offsetSec;
-    const fadeSec = durationSec > 0 ? durationSec : 0;
-    const bus     = actx.createGain();
+    const t0  = actx.currentTime + 0.005 + offsetSec;
+    const bus = actx.createGain();
     bus.gain.value = 1;
     bus.connect(masterBus);
 
-    // Fade-out: ramp the bus gain to zero over msFade ms at the phase boundary.
+    // Scheduled stop: ramp bus gain to zero over msFade ms ending at t0 + stopAtSec.
     if (stopAtSec > 0) {
-      const cutAt  = t0 + stopAtSec;
-      const fadeSec = Math.max(0.005, msFade / 1000); // minimum 5 ms to avoid click
-      bus.gain.setValueAtTime(1, cutAt - fadeSec);
+      const cutAt    = t0 + stopAtSec;
+      const fadesSec = Math.max(0.005, msFade / 1000);
+      bus.gain.setValueAtTime(1, cutAt - fadesSec);
       bus.gain.linearRampToValueAtTime(0, cutAt);
     }
 
@@ -321,7 +301,7 @@ function createEngine(destination, { pitchShift = 1.0, suppressDoublets = false 
 
       tones.forEach(([freq, frac]) => {
         const g    = p.gain * frac * masterGain * PARTIAL_SCALE;
-        const stop = _addOscillator(freq, g, p.t60, atkSec, fadeSec, t0, bus);
+        const stop = _addOscillator(freq, g, p.t60, atkSec, t0, bus);
         maxStop = Math.max(maxStop, stop);
       });
     });
@@ -333,95 +313,236 @@ function createEngine(destination, { pitchShift = 1.0, suppressDoublets = false 
 
     setTimeout(() => { try { bus.disconnect(); } catch (_) {} },
       (maxStop - actx.currentTime + 2) * 1000);
+
+    function stop(ms = 300) {
+      const now      = actx.currentTime;
+      const fadeSecs = Math.max(0.005, ms / 1000);
+      bus.gain.cancelScheduledValues(now);
+      bus.gain.setValueAtTime(bus.gain.value, now);
+      bus.gain.linearRampToValueAtTime(0, now + fadeSecs);
+    }
+
+    return { stop };
   }
 
   return { strike, analyser };
 }
 
+function _createMixedEngine(destination, entries) {
+  const blended               = blendBells(entries);
+  const { strike: _s, analyser } = _createEngine(destination);
+  function strike(params = {}) { return _s(blended, params); }
+  return { strike, analyser };
+}
 
-// ---------------------------------------------------------------------------
-// SECTION 2b — MIXED ENGINE
-// ---------------------------------------------------------------------------
+// ── Public Bell API ───────────────────────────────────────────────────────────
 
 /**
- * Blends the spectral character of multiple BellDefs into one new BellDef.
+ * Creates a synthetic bell from a BellDef, ready to be struck.
  *
- * All frequencies (f1, f2, atkMs) come from the first (reference) entry
- * unchanged. For each partial label present in the reference bell, gain
- * and T60 are computed as weighted averages across all entries that carry
- * that label. Each bell's gains are first normalised relative to its own
- * Prime so that bells with different absolute levels contribute proportionally.
- * Partials unique to non-reference bells are silently ignored — they have no
- * corresponding frequency in the reference.
+ * @example
+ * const inhale = createInternalSyntheticBell(BELLS[0]);
+ * const exhale = createInternalSyntheticBell(BELLS[0], { pitchShift: 0.9 });
+ * const handle = strikeBell(inhale, { stopAtSec: 4, msFade: 300 });
+ * setTimeout(() => handle.stop(300), 2000);
  *
- * @param {Array<{bellDef: BellDef, weight: number}>} entries
- *   Bells to blend. First entry is the reference (supplies all frequencies).
- *   weight: 0.0–1.0, the bell's contribution to the spectral blend.
- * @returns {BellDef} A new BellDef named 'Mixed' with blended gain/T60 values.
+ * @param {BellDef} bellDef    - Bell definition from BELLS, or from blendBells().
+ * @param {Object}  [options]
+ * @param {number}  [options.pitchShift=1.0]
+ *   Frequency multiplier (0.5–2.0). Use ~0.85–0.95 for an exhale bell.
+ * @returns {Bell}
  */
-function blendBells(entries) {
-  const reference = entries[0].bellDef;
-
-  const blendedPartials = reference.partials.map(refPartial => {
-    let gainSum = 0, t60Sum = 0, wSum = 0;
-
-    entries.forEach(({ bellDef, weight }) => {
-      const match = bellDef.partials.find(p => p.label === refPartial.label);
-      if (match && match.enabled) {
-        // Normalise each bell's gain relative to its own Prime before averaging,
-        // so bells with different absolute levels contribute proportionally.
-        const ownPrime = bellDef.partials.find(p => p.label === 'Prime');
-        const normGain = ownPrime ? match.gain / ownPrime.gain : match.gain;
-        gainSum += normGain * weight;
-        t60Sum  += match.t60 * weight;
-        wSum    += weight;
-      }
-    });
-
-    if (wSum === 0) return { ...refPartial }; // unique to reference — keep as-is
-
-    // Re-scale blended gain back relative to reference Prime gain
-    const refPrime     = reference.partials.find(p => p.label === 'Prime');
-    const refPrimeGain = refPrime ? refPrime.gain : 1.0;
-
-    return {
-      ...refPartial,
-      gain: (gainSum / wSum) * refPrimeGain,
-      t60:   t60Sum  / wSum,
-      // atkMs kept from reference: attack shape reflects reference bell geometry
-    };
-  });
-
-  return { ...reference, name: 'Mixed', partials: blendedPartials };
+function createInternalSyntheticBell(bellDef, { pitchShift = 1.0 } = {}) {
+  const actx    = _getActx();
+  const engine  = _createEngine(actx.destination, { pitchShift });
+  return {
+    type:     'synthetic',
+    analyser: engine.analyser,
+    _bellDef: bellDef,
+    _strike:  (opts) => engine.strike(bellDef, opts),
+  };
 }
 
 /**
- * Creates an engine that plays a spectral blend of multiple bells.
+ * Creates a bell from an audio file, ready to be struck.
+ * The file is fetched and decoded once at creation time.
+ * Only the requested excerpt is kept in memory — the full decoded buffer
+ * is discarded after trimming.
  *
- * Internally uses a single createEngine() instance — no frequency duplication,
- * no artefact beating between unrelated doublet asymmetries. All frequencies
- * remain those of the first (reference) entry in entries.
+ * Supported formats: mp3, wav, ogg/vorbis, aac, flac, opus.
+ * Exact support varies by browser/OS but all of the above work reliably
+ * on iOS Safari, Android Chrome, and desktop browsers.
  *
- * @param {AudioNode} destination - Web Audio node to connect output to.
- * @param {Array<{bellDef: BellDef, weight: number}>} entries
- *   Bells to blend. First entry is the reference (supplies all frequencies).
- * @returns {Engine}
+ * Pitch is adjusted via AudioBufferSourceNode.playbackRate, so the timbre
+ * changes naturally with pitch (as on a real instrument).
+ *
+ * @example
+ * // Use a URL
+ * const bowl = await createExternalBellFromFile('sounds/bowl.mp3', { startOffset: 0.5, duration: 6 });
+ *
+ * // Use a pre-fetched Response (e.g. from a service worker or cache)
+ * const res  = await caches.match('sounds/bowl.mp3');
+ * const bowl = await createExternalBellFromFile(res, { startOffset: 0.5, duration: 6 });
+ *
+ * const handle = strikeBell(bowl, { stopAtSec: 4, msFade: 300 });
+ *
+ * @param {string|Response} urlOrResponse
+ *   URL string, or a pre-fetched Response object.
+ *   Accepting a Response allows the caller to handle caching, auth headers,
+ *   or service worker interception before passing the result in.
+ * @param {Object} [options]
+ * @param {number} [options.pitchShift=1.0]
+ *   Playback rate multiplier (0.5–2.0). 1.0 = original pitch.
+ * @param {number} [options.startOffset=0]
+ *   Where in the file to begin the excerpt, in seconds.
+ * @param {number} [options.duration=null]
+ *   How many seconds of audio to keep. null → keep from startOffset to end.
+ *   The trimmed excerpt is copied into a new AudioBuffer; the rest is discarded.
+ * @returns {Promise<Bell>}
+ * @throws {Error} If the fetch fails, the response is not OK, the format is
+ *   unsupported, or the trim parameters fall outside the file duration.
  */
-function createMixedEngine(destination, entries) {
-  const blended            = blendBells(entries);
-  const { strike: _strike, analyser } = createEngine(destination);
+async function createExternalBellFromFile(urlOrResponse, {
+  pitchShift  = 1.0,
+  startOffset = 0,
+  duration    = null,
+} = {}) {
+  const actx = _getActx();
 
-  /**
-   * Plays the blended bell. The bellDef argument is intentionally ignored —
-   * the spectral blend is fixed at construction time via blendBells().
-   * @param {BellDef}       _ignored
-   * @param {StrikeOptions} [params]
-   */
-  function strike(_ignored, params = {}) {
-    _strike(blended, params);
+  // ── Fetch ─────────────────────────────────────────────────────────────────
+  let response;
+  if (urlOrResponse instanceof Response) {
+    response = urlOrResponse;
+  } else {
+    try {
+      response = await fetch(urlOrResponse);
+    } catch (err) {
+      throw new Error(
+        `createExternalBellFromFile: network error fetching "${urlOrResponse}": ${err.message}`
+      );
+    }
   }
 
-  return { strike, analyser };
+  if (!response.ok) {
+    throw new Error(
+      `createExternalBellFromFile: fetch failed for "${response.url}" ` +
+      `(HTTP ${response.status} ${response.statusText})`
+    );
+  }
+
+  const arrayBuf = await response.arrayBuffer();
+
+  // ── Decode ────────────────────────────────────────────────────────────────
+  let fullBuf;
+  try {
+    fullBuf = await actx.decodeAudioData(arrayBuf);
+  } catch (err) {
+    const src = urlOrResponse instanceof Response ? response.url : urlOrResponse;
+    throw new Error(
+      `createExternalBellFromFile: could not decode "${src}" — ` +
+      `unsupported or corrupted file. ` +
+      `Supported formats: mp3, wav, ogg/vorbis, aac, flac, opus.`
+    );
+  }
+
+  // ── Validate trim parameters ──────────────────────────────────────────────
+  const fileDuration = fullBuf.duration;
+
+  if (startOffset < 0 || startOffset >= fileDuration) {
+    throw new Error(
+      `createExternalBellFromFile: startOffset ${startOffset}s is out of range ` +
+      `(file duration is ${fileDuration.toFixed(2)}s)`
+    );
+  }
+
+  const maxDuration  = fileDuration - startOffset;
+  const trimDuration = duration === null
+    ? maxDuration
+    : Math.min(duration, maxDuration);
+
+  if (duration !== null && duration <= 0) {
+    throw new Error(
+      `createExternalBellFromFile: duration must be > 0 (got ${duration})`
+    );
+  }
+
+  // ── Trim: copy excerpt into a new AudioBuffer ─────────────────────────────
+  // Only the excerpt is kept in memory; the full decoded buffer is discarded.
+  const sampleRate   = fullBuf.sampleRate;
+  const startSample  = Math.floor(startOffset  * sampleRate);
+  const trimSamples  = Math.ceil (trimDuration * sampleRate);
+  const nChannels    = fullBuf.numberOfChannels;
+
+  const trimBuf = actx.createBuffer(nChannels, trimSamples, sampleRate);
+  for (let ch = 0; ch < nChannels; ch++) {
+    trimBuf.copyToChannel(
+      fullBuf.getChannelData(ch).subarray(startSample, startSample + trimSamples),
+      ch
+    );
+  }
+  // fullBuf goes out of scope here and will be garbage collected.
+
+  // ── Build Bell ────────────────────────────────────────────────────────────
+  const analyser  = actx.createAnalyser();
+  analyser.fftSize = 1024;
+  analyser.connect(actx.destination);
+
+  function _strike({ masterGain = 1.0, stopAtSec = 0, msFade = 300, offsetSec = 0 } = {}) {
+    if (actx.state === 'suspended') actx.resume();
+
+    const t0  = actx.currentTime + 0.005 + offsetSec;
+    const bus = actx.createGain();
+    bus.gain.value = masterGain;
+    bus.connect(analyser);
+
+    if (stopAtSec > 0) {
+      const cutAt    = t0 + stopAtSec;
+      const fadesSec = Math.max(0.005, msFade / 1000);
+      bus.gain.setValueAtTime(masterGain, cutAt - fadesSec);
+      bus.gain.linearRampToValueAtTime(0, cutAt);
+    }
+
+    const src              = actx.createBufferSource();
+    src.buffer             = trimBuf;
+    src.playbackRate.value = pitchShift;
+    src.connect(bus);
+    src.start(t0);
+
+    const naturalEnd = t0 + trimBuf.duration / pitchShift;
+    setTimeout(() => { try { bus.disconnect(); } catch (_) {} },
+      (naturalEnd - actx.currentTime + 1) * 1000);
+
+    function stop(ms = 300) {
+      const now      = actx.currentTime;
+      const fadeSecs = Math.max(0.005, ms / 1000);
+      bus.gain.cancelScheduledValues(now);
+      bus.gain.setValueAtTime(bus.gain.value, now);
+      bus.gain.linearRampToValueAtTime(0, now + fadeSecs);
+      setTimeout(() => { try { src.stop(); bus.disconnect(); } catch (_) {} },
+        (fadeSecs + 0.1) * 1000);
+    }
+
+    return { stop };
+  }
+
+  return { type: 'file', analyser, _strike };
+}
+
+/**
+ * Strikes a bell and returns a handle to stop it early.
+ *
+ * Works identically with synthetic and file-based bells.
+ *
+ * @example
+ * const handle = strikeBell(myBell, { stopAtSec: 7, msFade: 300 });
+ * setTimeout(() => handle.stop(300), 2000);
+ *
+ * @param {Bell}          bell    - Bell created by createInternalSyntheticBell or createExternalBellFromFile.
+ * @param {StrikeOptions} [opts]
+ * @returns {StrikeHandle}
+ */
+function strikeBell(bell, opts = {}) {
+  return bell._strike(opts);
 }
 
 
@@ -450,68 +571,47 @@ const PATTERNS = {
  * Strikes a bell for one inhale or exhale phase of a breathing cycle,
  * then resolves when the phase is complete.
  *
- * Intended as the primary API for the breathing-exercise PWA:
+ * Works with both synthetic and file-based bells.
+ *
  * @example
- * // 4 s inhale at natural pitch, sound fades over 300 ms at phase end
- * await strikeBreath(BELLS[0], { soundDuration: 4, phaseDuration: 4, msFade: 300 });
+ * const inhale = createInternalSyntheticBell(BELLS[0]);
+ * const exhale = createInternalSyntheticBell(BELLS[0], { pitchShift: 0.9 });
  *
- * // 4 s exhale at slightly lower pitch and quieter
- * await strikeBreath(BELLS[0], { pitchShift: 0.9, masterGain: 0.4, soundDuration: 4, phaseDuration: 4, msFade: 300 });
+ * while (running) {
+ *   await strikeBreath(inhale, { stopAtSec: 4, phaseDuration: 4 });  // inhale
+ *   await strikeBreath(null,   { phaseDuration: 4 });                 // hold (silent)
+ *   await strikeBreath(exhale, { stopAtSec: 4, phaseDuration: 4 });  // exhale
+ *   await strikeBreath(null,   { phaseDuration: 4 });                 // hold (silent)
+ * }
  *
- * @param {BellDef} bellDef
- *   The bell to strike. Typically one entry from BELLS, or a blended BellDef
- *   from blendBells().
+ * @param {Bell|null} bell
+ *   Bell to strike. Pass null for a silent hold phase.
  * @param {Object} options
- * @param {number} [options.pitchShift=1.0]
- *   Frequency multiplier for this phase. Use < 1 for exhale (e.g. 0.9).
  * @param {number} [options.masterGain=1.0]
  *   Overall loudness (0.0–1.5). Defaults to 1.0 — use device volume to
  *   control loudness. Values above 1.0 may distort on phone speakers.
  * @param {number} [options.noiseAmt=0.15]
  *   Strike-noise amplitude (0–0.5). Set to 0 to silence the transient click.
- * @param {number} options.soundDuration
- *   How long the bell rings, in seconds. The sound fades out over msFade ms
- *   ending at soundDuration. Must be ≤ phaseDuration.
+ * @param {number} [options.stopAtSec=0]
+ *   Scheduled stop time in seconds. Use 0 for a free-ringing bell.
  * @param {number} options.phaseDuration
  *   Total length of this breath phase in seconds. The returned Promise
- *   resolves exactly when phaseDuration has elapsed from the strike.
+ *   resolves exactly when phaseDuration has elapsed.
  * @param {number} [options.msFade=300]
- *   Duration of the fade-out in milliseconds at the soundDuration cutoff.
- *   300 ms is clearly audible but not abrupt. Use smaller values for a
- *   crisper stop, larger for a more gradual release.
- * @param {AudioNode} [options.destination]
- *   Web Audio destination node. Defaults to a shared AudioContext destination.
- *   Pass explicitly when the PWA manages its own AudioContext.
+ *   Fade duration in milliseconds at the stopAtSec cutoff.
  * @returns {Promise<void>} Resolves when phaseDuration has elapsed.
  */
-function strikeBreath(bellDef, {
-  pitchShift    = 1.0,
+function strikeBreath(bell, {
   masterGain    = 1.0,
   noiseAmt      = 0.15,
-  soundDuration,
+  stopAtSec     = 0,
   phaseDuration,
   msFade        = 300,
-  destination   = null,
 } = {}) {
-  // Resolve destination: use provided node, or fall back to a shared context
-  const dest = destination ?? (() => {
-    if (!strikeBreath._actx) {
-      strikeBreath._actx = new AudioContext();
-    }
-    return strikeBreath._actx.destination;
-  })();
-
-  const engine = createEngine(dest, { pitchShift });
-
-  engine.strike(bellDef, {
-    masterGain,
-    noiseAmt,
-    durationSec: soundDuration,
-    stopAtSec:   soundDuration,
-    msFade,
-  });
-
+  if (bell) {
+    bell._strike({ masterGain, noiseAmt, stopAtSec, msFade });
+  }
   return new Promise(resolve => setTimeout(resolve, phaseDuration * 1000));
 }
 
-export { createEngine, createMixedEngine, blendBells, strikeBreath, BELLS };
+export { createInternalSyntheticBell, createExternalBellFromFile, strikeBell, strikeBreath, blendBells, BELLS };
